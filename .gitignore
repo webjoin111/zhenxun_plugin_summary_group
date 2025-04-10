@@ -1,0 +1,11 @@
+.cursor/
+.vscode/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+*.egg-info/
+dist/
+*.log
