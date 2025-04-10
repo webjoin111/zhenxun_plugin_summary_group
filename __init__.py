@@ -119,12 +119,14 @@ __plugin_meta__ = PluginMetadata(
         version="0.2",
         configs=[
             RegisterConfig(
+                module="summary_group",
                 key="SUMMARY_API_KEYS",
                 value=None,
                 help="API密钥列表或单个密钥",
                 default_value=None,
             ),
             RegisterConfig(
+                module="summary_group",
                 key="SUMMARY_API_BASE",
                 value="https://generativelanguage.googleapis.com",
                 help="API基础URL",
@@ -132,6 +134,7 @@ __plugin_meta__ = PluginMetadata(
                 type=str,
             ),
             RegisterConfig(
+                module="summary_group",
                 key="SUMMARY_MODEL",
                 value="gemini-2.0-flash-exp",
                 help="使用的AI模型名称",
@@ -139,6 +142,7 @@ __plugin_meta__ = PluginMetadata(
                 type=str,
             ),
             RegisterConfig(
+                module="summary_group",
                 key="SUMMARY_API_TYPE",
                 value=None,
                 help="API类型(如 openai, claude, gemini, baidu 等)，留空则根据模型名称自动推断",
@@ -146,6 +150,7 @@ __plugin_meta__ = PluginMetadata(
                 type=str | None,
             ),
             RegisterConfig(
+                module="summary_group",
                 key="SUMMARY_OPENAI_COMPAT",
                 value=False,
                 help="是否对 Gemini API 使用 OpenAI 兼容模式访问 (需要对应 base url)",
@@ -153,6 +158,7 @@ __plugin_meta__ = PluginMetadata(
                 type=bool,
             ),
             RegisterConfig(
+                module="summary_group",
                 key="PROXY",
                 value=None,
                 help="网络代理地址，例如 http://127.0.0.1:7890",
@@ -160,6 +166,7 @@ __plugin_meta__ = PluginMetadata(
                 type=str | None,
             ),
             RegisterConfig(
+                module="summary_group",
                 key="TIME_OUT",
                 value=120,
                 help="API请求超时时间（秒）",
@@ -167,6 +174,7 @@ __plugin_meta__ = PluginMetadata(
                 type=int,
             ),
             RegisterConfig(
+                module="summary_group",
                 key="MAX_RETRIES",
                 value=3,
                 help="API请求失败时的最大重试次数",
@@ -174,6 +182,7 @@ __plugin_meta__ = PluginMetadata(
                 type=int,
             ),
             RegisterConfig(
+                module="summary_group",
                 key="RETRY_DELAY",
                 value=2,
                 help="API请求重试前的延迟时间（秒）",
@@ -181,6 +190,7 @@ __plugin_meta__ = PluginMetadata(
                 type=int,
             ),
             RegisterConfig(
+                module="summary_group",
                 key="SUMMARY_MAX_LENGTH",
                 value=1000,
                 help="手动触发总结时，默认获取的最大消息数量",
@@ -188,6 +198,7 @@ __plugin_meta__ = PluginMetadata(
                 type=int,
             ),
             RegisterConfig(
+                module="summary_group",
                 key="SUMMARY_MIN_LENGTH",
                 value=50,
                 help="触发总结所需的最少消息数量",
@@ -195,6 +206,7 @@ __plugin_meta__ = PluginMetadata(
                 type=int,
             ),
             RegisterConfig(
+                module="summary_group",
                 key="SUMMARY_COOL_DOWN",
                 value=60,
                 help="用户手动触发总结的冷却时间（秒，0表示无冷却）",
@@ -202,6 +214,7 @@ __plugin_meta__ = PluginMetadata(
                 type=int,
             ),
             RegisterConfig(
+                module="summary_group",
                 key="SUMMARY_ADMIN_LEVEL",
                 value=10,
                 help="设置/取消本群定时总结所需的最低管理员等级",
@@ -209,6 +222,7 @@ __plugin_meta__ = PluginMetadata(
                 type=int,
             ),
             RegisterConfig(
+                module="summary_group",
                 key="CONCURRENT_TASKS",
                 value=2,
                 help="同时处理总结任务的最大数量",
