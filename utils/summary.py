@@ -325,10 +325,10 @@ async def send_summary(bot: Bot, target: MsgTarget, summary: str) -> bool:
             )
 
         if reply_msg:
-            logger.debug(f"构造的 UniMessage: {repr(reply_msg)}", command="总结发送")
+            # logger.debug(f"构造的 UniMessage: {repr(reply_msg)}", command="总结发送")
             try:
                 exported_msg = await reply_msg.export(bot)
-                logger.debug(f"导出的消息: {repr(exported_msg)}", command="总结发送")
+                # logger.debug(f"导出的消息: {repr(exported_msg)}", command="总结发送")
             except Exception as export_e:
                 logger.error(
                     f"UniMessage 导出失败: {export_e}", command="总结发送", e=export_e
