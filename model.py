@@ -467,13 +467,13 @@ def detect_model() -> Model:
 
         logger.debug("[detect_model] Starting model detection...")
 
-        base_config = Config.get("summary_group")
+        base_config = Config.get("zhenxun_plugin_summary_group")
 
         if base_config:
-            logger.debug(f"[detect_model] Found 'summary_group' config section.")
+            logger.debug(f"[detect_model] Found 'zhenxun_plugin_summary_group' config section.")
         else:
             logger.warning(
-                "[detect_model] Could not find 'summary_group' config section in global config!"
+                "[detect_model] Could not find 'zhenxun_plugin_summary_group' config section in global config!"
             )
             base_config = {}
 
