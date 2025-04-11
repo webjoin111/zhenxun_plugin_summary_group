@@ -229,6 +229,22 @@ __plugin_meta__ = PluginMetadata(
                 default_value=2,
                 type=int,
             ),
+            RegisterConfig(
+                module="summary_group",
+                key="summary_output_type",
+                value="image",
+                help="总结输出类型 (image 或 text)",
+                default_value="image",
+                type=str,
+            ),
+            RegisterConfig(
+                module="summary_group",
+                key="summary_fallback_enabled",
+                value=False,
+                help="当图片生成失败时是否自动回退到文本模式",
+                default_value=False,
+                type=bool,
+            ),
         ],
         limits=[
             PluginCdBlock(

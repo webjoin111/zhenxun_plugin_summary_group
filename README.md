@@ -102,12 +102,14 @@
 
 ```yaml
 summary_group:
-  # API配置
-  summary_api_keys: null  # API密钥列表或单个密钥
-  summary_api_base: https://generativelanguage.googleapis.com  # API基础URL
-  summary_model: gemini-2.0-flash-exp  # 使用的AI模型名称
-  summary_api_type: null  # API类型(openai/claude/gemini/baidu等)
-  summary_openai_compat: false  # 是否使用OpenAI兼容模式
+  SUMMARY_API_KEYS:
+  - AIzaSyARl-rHUKVXXXXXXXXXXXXXXXXXXXXXXXX
+  - AIzaSyABgrFnCBTXXXXXXXXXXXXXXXXXXXXXXXX
+  - AIzaSyD9gdvnBzj-XXXXXXXXXXXXXXXXXXXXXXX
+  SUMMARY_API_BASE: https://generativelanguage.googleapis.com
+  SUMMARY_MODEL: gemini-2.0-flash-exp
+  SUMMARY_API_TYPE:
+  SUMMARY_OPENAI_COMPAT: false
 
   # 网络配置
   proxy: null  # 代理地址，如 http://127.0.0.1:7890
@@ -119,6 +121,8 @@ summary_group:
   summary_max_length: 1000  # 单次总结最大消息数量
   summary_min_length: 50  # 触发总结最少消息数量
   summary_cool_down: 60  # 用户触发冷却时间（秒）
+  summary_output_type: image  # 总结输出类型 (image 或 text)
+  summary_fallback_enabled: false  # 当图片生成失败时是否自动回退到文本模式
 ```
 
 ## 功能演示

@@ -283,7 +283,10 @@ async def send_summary(bot: Bot, target: MsgTarget, summary: str) -> bool:
         base_config = Config.get("summary_group")
         reply_msg = None
 
-        if base_config.get("summary_in_png"):
+        output_type = base_config.get("summary_output_type", "image")
+        fallback_enabled = base_config.get("summary_fallback_enabled", False)
+
+        if output_type == "image":
             try:
                 logger.debug(f"开始生成总结图片", command="总结发送")
                 img_bytes = await generate_image(summary)
@@ -293,30 +296,27 @@ async def send_summary(bot: Bot, target: MsgTarget, summary: str) -> bool:
                         f"generate_image 返回了 bytes 数据，长度: {len(img_bytes)}",
                         command="总结发送",
                     )
-                else:
-
-                    logger.error(
-                        "generate_image 意外返回了 None 或空 bytes", command="总结发送"
-                    )
-                    raise ImageGenerationException("generate_image 返回无效数据")
-
-                if img_bytes:
                     reply_msg = UniMessage.image(raw=img_bytes)
                     logger.debug(
                         f"总结将以图片方式发送到 target: {target.id}",
                         command="总结发送",
                     )
                 else:
-                    logger.warning("图片数据无效，将回退到文本模式", command="总结发送")
-            except ImageGenerationException as e:
+                    logger.error(
+                        "generate_image 意外返回了 None 或空 bytes", command="总结发送"
+                    )
+                    if not fallback_enabled:
+                        raise ImageGenerationException("图片生成失败，且未启用回退模式")
+                    logger.warning("图片生成失败，将回退到文本模式", command="总结发送")
+            except Exception as e:
+                if not fallback_enabled:
+                    logger.error(
+                        f"图片生成失败且未启用回退模式: {e}", command="总结发送", e=e
+                    )
+                    raise ImageGenerationException(f"图片生成失败: {str(e)}")
                 logger.warning(
                     f"图片生成失败，将回退到文本模式: {e}", command="总结发送"
                 )
-            except Exception as e:
-                logger.error(
-                    f"图片生成过程中发生未知错误: {e}", command="总结发送", e=e
-                )
-                logger.warning("将回退到文本模式", command="总结发送")
 
         if not reply_msg:
             reply_msg = UniMessage.text(summary)
