@@ -9,11 +9,9 @@ from zhenxun.utils.platform import PlatformUtils, UserData
 
 from ..model import detect_model
 
-if Config.get("summary_group").get("summary_in_png"):
-    from nonebot import require
-
-    require("nonebot_plugin_htmlrender")
-    from nonebot_plugin_htmlrender import md_to_pic
+from nonebot import require
+require("nonebot_plugin_htmlrender")
+from nonebot_plugin_htmlrender import md_to_pic
 
 from .scheduler import SummaryException
 
@@ -226,11 +224,11 @@ async def process_message(
 
 async def generate_image(summary: str) -> bytes:
     try:
-        if not Config.get("summary_group").get("summary_in_png"):
+        base_config = Config.get("summary_group")
+        if base_config.get("summary_output_type", "image") != "image":
             raise ValueError("图片生成功能未启用")
 
         css_file = "github-markdown-dark.css"
-        base_config = Config.get("summary_group")
 
         theme = base_config.get("summary_theme", "dark")
         if theme == "light":
