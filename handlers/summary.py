@@ -6,6 +6,9 @@ from nonebot.permission import SUPERUSER
 from zhenxun.services.log import logger
 from zhenxun.configs.config import Config
 from zhenxun.models.statistics import Statistics
+from zhenxun.models.bot_console import BotConsole
+from zhenxun.models.group_console import GroupConsole
+from zhenxun.models.ban_console import BanConsole
 from .. import summary_cd_limiter
 from ..utils.message import (
     get_group_msg_history,
@@ -30,6 +33,63 @@ async def handle_summary(
 ):
     user_id_str = event.get_user_id()
     group_id = event.group_id if isinstance(event, GroupMessageEvent) else None
+    bot_id = bot.self_id
+    plugin_name = "summary_group"
+
+    try:
+
+        if not await BotConsole.get_bot_status(bot_id):
+            logger.info(
+                f"Bot {bot_id} is inactive, skipping command.",
+                command="总结",
+                session=user_id_str,
+                group_id=group_id,
+            )
+            return
+
+        if await BotConsole.is_block_plugin(bot_id, plugin_name):
+            logger.info(
+                f"Plugin '{plugin_name}' is blocked for Bot {bot_id}.",
+                command="总结",
+                session=user_id_str,
+            )
+            return
+
+        if group_id and await GroupConsole.is_block_plugin(group_id, plugin_name):
+            logger.info(
+                f"Plugin '{plugin_name}' is blocked for Group {group_id}.",
+                command="总结",
+                session=user_id_str,
+                group_id=group_id,
+            )
+            await UniMessage.text("群聊总结功能在本群已被禁用。").send(target)
+            return
+
+        if group_id and await BanConsole.is_ban(None, group_id):
+            logger.info(
+                f"Group {group_id} is banned.", command="总结", group_id=group_id
+            )
+            return
+
+        if await BanConsole.is_ban(user_id_str, group_id):
+            logger.info(
+                f"User {user_id_str} is banned in Group {group_id or 'global'}.",
+                command="总结",
+                session=user_id_str,
+                group_id=group_id,
+            )
+            return
+
+    except Exception as e:
+        logger.error(
+            f"执行命令前检查出错: {e}",
+            command="总结",
+            session=user_id_str,
+            group_id=group_id,
+            e=e,
+        )
+        await UniMessage.text("执行命令前检查出错，请联系管理员。").send(target)
+        return
 
     if not group_id:
         logger.warning(

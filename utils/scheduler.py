@@ -245,6 +245,9 @@ async def process_summary_queue() -> None:
                     group_id=group_id,
                 )
 
+                group_id_str = str(group_id)
+                plugin_name = "summary_group"
+
                 async with semaphore:
                     logger.debug(
                         f"开始处理任务 [{task_id}]: 群 {group_id} 的总结",
@@ -260,40 +263,40 @@ async def process_summary_queue() -> None:
 
                             if not await BotConsole.get_bot_status(bot_id):
                                 logger.info(
-                                    f"Bot {bot_id} is inactive, skipping task.",
+                                    f"Bot {bot_id} is inactive, skipping task [{task_id}].",
                                     command="队列处理器",
-                                    group_id=group_id,
+                                    group_id=group_id_str,
                                 )
                                 summary_queue.task_done()
                                 continue
 
                             if await BotConsole.is_block_plugin(
-                                bot_id, "summary_group"
+                                bot_id, plugin_name
                             ):
                                 logger.info(
-                                    f"Plugin 'summary_group' is blocked for Bot {bot_id}, skipping task.",
+                                    f"Plugin '{plugin_name}' is blocked for Bot {bot_id}, skipping task [{task_id}].",
                                     command="队列处理器",
-                                    group_id=group_id,
+                                    group_id=group_id_str,
                                 )
                                 summary_queue.task_done()
                                 continue
 
                             if await GroupConsole.is_block_plugin(
-                                group_id, "summary_group"
+                                group_id_str, plugin_name
                             ):
                                 logger.info(
-                                    f"Plugin 'summary_group' is blocked for Group {group_id}, skipping task.",
+                                    f"Plugin '{plugin_name}' is blocked for Group {group_id_str}, skipping task [{task_id}].",
                                     command="队列处理器",
-                                    group_id=group_id,
+                                    group_id=group_id_str,
                                 )
                                 summary_queue.task_done()
                                 continue
 
-                            if await BanConsole.is_ban(None, group_id):
+                            if await BanConsole.is_ban(None, group_id_str):
                                 logger.info(
-                                    f"Group {group_id} is banned, skipping task.",
+                                    f"Group {group_id_str} is banned, skipping task [{task_id}].",
                                     command="队列处理器",
-                                    group_id=group_id,
+                                    group_id=group_id_str,
                                 )
                                 summary_queue.task_done()
                                 continue
@@ -302,7 +305,7 @@ async def process_summary_queue() -> None:
                             logger.error(
                                 f"[{task_id}] 执行任务前检查出错: {check_e}",
                                 command="队列处理器",
-                                group_id=group_id,
+                                group_id=group_id_str,
                                 e=check_e,
                             )
                             summary_queue.task_done()
