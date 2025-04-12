@@ -1,4 +1,3 @@
-
 from typing import Union, Tuple
 from datetime import datetime
 from zhenxun.services.log import logger
@@ -542,140 +541,149 @@ async def handle_summary_remove(
     bot: Bot,
     event: Union[GroupMessageEvent, PrivateMessageEvent],
     result: CommandResult,
+    target: MsgTarget,
 ):
-
-    summary_remove = on_alconna("定时总结取消")
-
+    """处理定时总结取消命令（包含所有分支逻辑）"""
     try:
-        all_enabled = "all" in result.result.options
-        target_group_id = result.result.query("target_group_id", None)
+        arp = result.result
+        if not arp:
+            logger.error("Arparma is None in handle_summary_remove", command="定时总结取消")
+            await UniMessage.text("命令解析失败，请检查输入。").send(target)
+            return
+
+        target_group_id_match = arp.query("g.target_group_id")
+        all_enabled = arp.find("all")
+        user_id = event.get_user_id()
 
         logger.debug(
-            f"处理取消定时总结命令: all_enabled={all_enabled}, target_group_id={target_group_id}, options={list(result.result.options.keys())}",
-            command="定时总结",
+            f"处理取消定时总结命令: all_enabled={all_enabled}, target_group_id={target_group_id_match}",
+            command="定时总结取消", session=user_id, group_id=getattr(event, "group_id", None)
         )
 
+        is_superuser = await SUPERUSER(bot, event)
         store = Store()
 
-        if all_enabled:
-            logger.debug(
-                "检测到-all参数，准备取消所有群组的定时总结", command="定时总结"
-            )
-
-            try:
-                success, result_msg, _, _ = await handle_global_summary_remove(store)
-                await bot.send(event, result_msg)
+        if all_enabled: # 处理 -all
+            if not is_superuser:
+                await UniMessage.text("使用 -all 选项需要超级用户权限。").send(target)
                 return
-
-            except FinishedException:
-                logger.debug("处理被正常终止", command="定时总结")
+            try:
+                logger.debug("执行全局取消 (-all)", command="定时总结取消", session=user_id)
+                success, result_msg, _, _ = await handle_global_summary_remove(store)
+                await UniMessage.text(result_msg).send(target)
                 return
             except Exception as e:
                 logger.error(
                     f"取消全局定时总结时发生异常: {str(e)}",
-                    command="定时总结",
-                    exc_info=True,
+                    command="定时总结取消", session=user_id, e=e
                 )
-                await bot.send(event, f"取消全局定时总结失败: {str(e)}")
+                await UniMessage.text(f"取消全局定时总结失败: {str(e)}").send(target)
                 return
 
-        logger.debug("执行单群取消流程", command="定时总结")
+        elif target_group_id_match is not None: # 处理 -g
+            target_group_id = target_group_id_match
+            if not is_superuser:
+                await UniMessage.text("使用 -g 选项需要超级用户权限。").send(target)
+                return
+            try:
+                logger.debug(f"执行指定群组 {target_group_id} 取消 (-g)", command="定时总结取消", session=user_id)
+                group_info = await bot.get_group_info(group_id=target_group_id)
+                if not group_info:
+                    await UniMessage.text(f"群 {target_group_id} 不存在或Bot不在该群中。").send(target)
+                    return
+                
+                if not store.get(target_group_id):
+                    await UniMessage.text(f"群 {target_group_id} 未设置定时总结。").send(target)
+                    return
+                
+                store.remove(target_group_id)
+                job_id = f"summary_group_{target_group_id}"
+                try:
+                    from nonebot_plugin_apscheduler import scheduler
+                    scheduler.remove_job(job_id)
+                    logger.debug(f"已从调度器移除群 {target_group_id} 任务", command="定时总结取消")
+                except Exception as e:
+                    logger.warning(f"移除群 {target_group_id} 定时任务出错: {str(e)}", command="定时总结取消", e=e)
+                
+                result_msg = f"已取消群 {target_group_id} 的定时总结。"
+                await UniMessage.text(result_msg).send(target)
+                return
+            except Exception as e:
+                logger.error(
+                    f"取消群 {target_group_id} 定时总结时发生异常: {str(e)}",
+                    command="定时总结取消", session=user_id, e=e
+                )
+                await UniMessage.text(f"取消群 {target_group_id} 定时总结失败: {str(e)}").send(target)
+                return
 
-        group_id = None
-        if target_group_id is not None:
-            group_id = target_group_id
-            logger.debug(
-                f"从-g参数获取到群号: {group_id}", command="定时总结", group_id=group_id
-            )
-        else:
-            if isinstance(event, GroupMessageEvent):
-                group_id = event.group_id
+        else: # 处理默认情况（当前群）
+            if not isinstance(event, GroupMessageEvent):
+                await UniMessage.text("在私聊中使用此命令，请使用 -g <群号> 或 -all 选项。").send(target)
+                return
+            group_id = event.group_id
+
+            # --- 添加 Zhenxun 检查 ---
+            try:
+                bot_id = bot.self_id
+                logger.debug(f"开始对群 {group_id} 用户 {user_id} 进行 Zhenxun 检查", command="定时总结取消")
+                if not await BotConsole.get_bot_status(bot_id):
+                    logger.info(f"Bot {bot_id} is inactive, skipping command.", command="定时总结取消", session=user_id)
+                    return
+                if await BotConsole.is_block_plugin(bot_id, "summary_group"):
+                    logger.info(f"Plugin 'summary_group' is blocked for Bot {bot_id}.", command="定时总结取消", session=user_id)
+                    return
+                if await GroupConsole.is_block_plugin(group_id, "summary_group"):
+                    logger.info(f"Plugin 'summary_group' is blocked for Group {group_id}.", command="定时总结取消", session=user_id, group_id=group_id)
+                    await UniMessage.text("群聊总结功能在本群已被禁用。").send(target)
+                    return
+                if await BanConsole.is_ban(None, group_id):
+                    logger.info(f"Group {group_id} is banned.", command="定时总结取消", group_id=group_id)
+                    return
+                if await BanConsole.is_ban(user_id, group_id):
+                    logger.info(f"User {user_id} is banned in Group {group_id}.", command="定时总结取消", session=user_id, group_id=group_id)
+                    return
+                logger.debug("Zhenxun 检查通过", command="定时总结取消", group_id=group_id)
+            except Exception as e:
+                logger.error(f"执行 Zhenxun 检查时出错: {e}", command="定时总结取消", session=user_id, group_id=group_id, e=e)
+                await UniMessage.text("检查权限或状态时出错，请稍后重试。").send(target)
+                return
+            # --- 检查结束 ---
+
+            # --- 处理当前群组逻辑 ---
+            try:
                 logger.debug(
-                    f"使用当前群号: {group_id}", command="定时总结", group_id=group_id
+                    f"执行当前群组 {group_id} 取消",
+                    command="定时总结取消", session=user_id, group_id=group_id
                 )
-            else:
-                logger.warning("私聊取消但未指定有效群号", command="定时总结")
-                await bot.send(
-                    event,
-                    "私聊取消定时总结时，必须通过 -g 选项指定目标群号。",
-                    command="定时总结",
+                
+                if not store.get(group_id):
+                    await UniMessage.text("本群未设置定时总结。").send(target)
+                    return
+
+                store.remove(group_id)
+                job_id = f"summary_group_{group_id}"
+                try:
+                    from nonebot_plugin_apscheduler import scheduler
+                    scheduler.remove_job(job_id)
+                    logger.debug(f"已从调度器移除群 {group_id} 任务", command="定时总结取消")
+                except Exception as e:
+                    logger.warning(f"移除群 {group_id} 定时任务出错: {str(e)}", command="定时总结取消", e=e)
+
+                result_msg = "已取消本群的定时总结。"
+                await UniMessage.text(result_msg).send(target)
+            except Exception as e:
+                logger.error(
+                    f"处理取消当前群 {group_id} 定时总结时发生异常: {str(e)}",
+                    command="定时总结取消", session=user_id, group_id=group_id, e=e
                 )
-                return
-
-        try:
-            logger.debug(
-                f"验证群 {group_id} 是否存在", command="定时总结", group_id=group_id
-            )
-            group_info = await bot.get_group_info(group_id=group_id)
-            if not group_info:
-                logger.warning(
-                    f"群 {group_id} 不存在或Bot不在该群中",
-                    command="定时总结",
-                    group_id=group_id,
-                )
-                await bot.send(
-                    event, f"群 {group_id} 不存在或Bot不在该群中。", command="定时总结"
-                )
-                return
-        except Exception as e:
-            logger.error(
-                f"获取群 {group_id} 信息失败: {str(e)}",
-                command="定时总结",
-                group_id=group_id,
-            )
-            await bot.send(event, f"获取群信息失败: {str(e)}", command="定时总结")
-            return
-
-        if not store.get(group_id):
-            logger.warning(
-                f"群 {group_id} 未设置定时总结", command="定时总结", group_id=group_id
-            )
-            await bot.send(event, f"群 {group_id} 未设置定时总结。", command="定时总结")
-            return
-
-        store.remove(group_id)
-        logger.debug(
-            f"已从存储中移除群 {group_id} 的定时总结设置",
-            command="定时总结",
-            group_id=group_id,
-        )
-
-        job_id = f"summary_group_{group_id}"
-        try:
-            from nonebot_plugin_apscheduler import scheduler
-
-            scheduler.remove_job(job_id)
-            logger.debug(
-                f"已从调度器中移除群 {group_id} 的定时任务",
-                command="定时总结",
-                group_id=group_id,
-            )
-        except Exception as e:
-            logger.warning(
-                f"移除群 {group_id} 的定时任务时出错: {str(e)}",
-                command="定时总结",
-                group_id=group_id,
-                e=e,
-            )
-
-        result_msg = (
-            f"'已取消群 {group_id} 的定时总结。', command='定时总结', group_id=group_id"
-        )
-        logger.debug(
-            f"单群取消完成，响应消息: {result_msg}",
-            command="定时总结",
-            group_id=group_id,
-        )
-        await bot.send(event, result_msg, command="定时总结")
+                await UniMessage.text(f"取消本群定时总结失败: {str(e)}").send(target)
     except Exception as e:
-
         logger.error(
             f"处理取消定时总结命令时发生异常: {str(e)}",
-            command="定时总结",
-            exc_info=True,
+            command="定时总结取消", session=event.get_user_id(), e=e
         )
-        logger.error(traceback.format_exc())
-        await bot.send(event, f"取消定时总结失败: {str(e)}", command="定时总结")
+        logger.error(traceback.format_exc(), command="定时总结取消")
+        await UniMessage.text(f"取消定时总结失败: {str(e)}").send(target)
 
 
 async def check_scheduler_status_handler(

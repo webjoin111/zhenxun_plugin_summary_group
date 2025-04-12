@@ -2,9 +2,10 @@
 # 消息处理功能
 from .message import (
     get_group_msg_history,
-    validate_message_count,
     MessageFetchException,
     check_cooldown,
+    get_raw_group_msg_history,
+    MessageProcessException,
 )
 
 # 总结功能
@@ -14,6 +15,7 @@ from .summary import (
     generate_image,
     send_summary,
     ModelException,
+    ImageGenerationException,
 )
 
 # 定时任务和队列管理
@@ -41,9 +43,11 @@ __all__ = [
     "ModelException",
     "MessageFetchException",
     "ScheduleException",
+    "MessageProcessException",
+    "ImageGenerationException",
     # 消息处理
     "get_group_msg_history",
-    "validate_message_count",
+    "get_raw_group_msg_history",
     "check_cooldown",
     # 总结功能
     "messages_summary",
