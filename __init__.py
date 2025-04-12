@@ -354,7 +354,7 @@ summary_remove = on_alconna(
         ),
     ),
     rule=admin_check("summary_group", "SUMMARY_ADMIN_LEVEL") & ensure_group,
-    priority=5,
+    priority=4,
     block=True,
 )
 
@@ -447,7 +447,6 @@ async def _(
     target: MsgTarget,
 ):
     try:
-
         arp = result.result
         time_str_match = arp.query("time_str")
         least_count_match = arp.query("least_message_count")
