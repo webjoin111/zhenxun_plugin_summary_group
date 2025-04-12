@@ -7,7 +7,7 @@ from zhenxun.configs.config import Config
 from zhenxun.services.log import logger
 from zhenxun.utils.platform import PlatformUtils, UserData
 
-from ..model import detect_model
+from ..model import detect_model, ModelException
 
 from nonebot import require
 
@@ -15,20 +15,14 @@ require("nonebot_plugin_htmlrender")
 from nonebot_plugin_htmlrender import md_to_pic
 
 from .scheduler import SummaryException
-
-
-class ModelException(SummaryException):
-
-    pass
+from .health import with_retry
 
 
 class MessageProcessException(SummaryException):
-
     pass
 
 
 class ImageGenerationException(SummaryException):
-
     pass
 
 
@@ -38,8 +32,6 @@ async def messages_summary(
     target_user_names: Optional[List[str]] = None,
     style: Optional[str] = None,
 ) -> str:
-    from .health import with_retry
-
     if not messages:
         logger.warning("没有足够的聊天记录可供总结", command="messages_summary")
         return "没有足够的聊天记录可供总结。"
@@ -71,7 +63,6 @@ async def messages_summary(
         prompt_parts.append(f"任务：请详细总结以下对话中仅与'{content}'相关的内容。")
         logger.debug(f"为指定内容 '{content}' 生成总结", command="messages_summary")
     else:
-
         prompt_parts.append("任务：请分析并总结以下聊天记录的主要讨论内容和信息脉络。")
         logger.debug("生成通用群聊总结", command="messages_summary")
 
@@ -84,22 +75,34 @@ async def messages_summary(
     async def invoke_model():
         try:
             model = detect_model()
+
             return await model.summary_history(messages, final_prompt)
+        except ModelException:
+            raise
         except Exception as e:
-            logger.error(f"生成总结失败: {e}", command="messages_summary", e=e)
-            raise ModelException(f"生成总结失败: {str(e)}")
+            logger.error(
+                f"生成总结失败 (invoke_model): {e}", command="messages_summary", e=e
+            )
+
+            raise ModelException(f"生成总结时发生内部错误: {str(e)}") from e
 
     try:
+
         return await with_retry(
             invoke_model,
             max_retries=Config.get("summary_group").get("MAX_RETRIES", 3),
             retry_delay=Config.get("summary_group").get("RETRY_DELAY", 2),
         )
-    except ModelException:
+    except ModelException as e:
+        logger.error(
+            f"总结生成失败，已达最大重试次数: {e}", command="messages_summary", e=e
+        )
         raise
     except Exception as e:
         logger.error(
-            f"总结生成过程中出现意外错误: {e}", command="messages_summary", e=e
+            f"总结生成过程中出现意外错误 (with_retry): {e}",
+            command="messages_summary",
+            e=e,
         )
         raise ModelException(f"总结生成失败: {str(e)}")
 

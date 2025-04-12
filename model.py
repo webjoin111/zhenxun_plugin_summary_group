@@ -7,9 +7,13 @@ import json
 import re
 
 from zhenxun.services.log import logger
-
-
 from zhenxun.configs.config import Config
+from zhenxun.utils.http_utils import AsyncHttpx
+from zhenxun.utils.user_agent import get_user_agent
+
+
+class ModelException(Exception):
+    pass
 
 
 class Model(ABC):
@@ -214,115 +218,61 @@ class LLMModel(Model):
     async def _request_summary(
         self, messages: List[Dict[str, str]], prompt: str
     ) -> str:
-        tried_indices = set()
+        if not self.api_keys:
+            logger.error("[LLMModel._request_summary] No API keys available.", command="LLMModel")
+            raise ModelException("错误：未配置有效的 API 密钥。")
 
-        for retry in range(self.max_retries):
-            if not self.api_keys:
-                return "错误：无可用 API 密钥。"
+        api_key = random.choice(self.api_keys)
+        logger.debug(f"Attempting API request with key starting: {api_key[:5]}...", command="LLMModel")
 
-            curr_index = self.current_key_index
+        try:
+            url, headers, data = self._prepare_request_params(api_key, messages, prompt)
+            logger.debug(f"Request URL: {url}", command="LLMModel")
 
-            available_indices = [
-                i for i in range(len(self.api_keys)) if i not in tried_indices
-            ]
-            if not available_indices:
+            proxy_config = None
+            use_proxy_config = True
+            if self.proxy:
+                proxy_config = {"http://": self.proxy, "https://": self.proxy}
+                use_proxy_config = False
+                logger.debug(f"Using specific proxy: {self.proxy}", command="LLMModel")
 
-                if retry < self.max_retries - 1:
-                    logger.warning(
-                        f"All API keys failed, retrying after delay ({self.retry_delay}s)...",
-                        command="LLMModel",
-                    )
-                    await asyncio.sleep(self.retry_delay)
-                    tried_indices.clear()
-                    curr_index = 0
-                else:
-                    logger.error(
-                        "All API keys failed after maximum retries.", command="LLMModel"
-                    )
-                    return "所有API密钥均请求失败，请检查配置或网络。"
-            else:
-
-                if curr_index not in available_indices:
-                    curr_index = random.choice(available_indices)
-
-            tried_indices.add(curr_index)
-            api_key = self.api_keys[curr_index]
-            logger.debug(
-                f"Attempting API request with key index {curr_index} (Retry {retry+1}/{self.max_retries})",
-                command="LLMModel",
+            response = await AsyncHttpx.post(
+                url,
+                json=data,
+                headers=headers,
+                timeout=self.timeout,
+                proxy=proxy_config,
+                use_proxy=use_proxy_config
             )
 
-            try:
-                url, headers, data = self._prepare_request_params(
-                    api_key, messages, prompt
-                )
-                logger.debug(f"Request URL: {url}", command="LLMModel")
-                logger.debug(f"Request Headers: {headers}", command="LLMModel")
+            logger.debug(f"Response Status Code: {response.status_code}", command="LLMModel")
+            response.raise_for_status()
 
-                client_params = {}
+            result = response.json()
+            response_text = self._extract_response_text(result)
 
-                if self.proxy:
-                    client_params["proxy"] = self.proxy
-                if self.timeout:
-                    client_params["timeout"] = self.timeout
+            logger.debug(f"API request successful with key starting: {api_key[:5]}...", command="LLMModel")
+            return response_text
 
-                async with httpx.AsyncClient(**client_params) as client:
-                    response = await client.post(url, json=data, headers=headers)
-
-                logger.debug(
-                    f"Response Status Code: {response.status_code}", command="LLMModel"
-                )
-
-                response.raise_for_status()
-                result = response.json()
-                response_text = self._extract_response_text(result)
-
-                self.current_key_index = curr_index
-                self.key_failure_count[curr_index] = 0
-                logger.debug(
-                    f"API request successful with key index {curr_index}.",
-                    command="LLMModel",
-                )
-                return response_text
-
-            except httpx.TimeoutException:
-                logger.warning(
-                    f"API request timed out for key index {curr_index}.",
-                    command="LLMModel",
-                )
-                self.key_failure_count[curr_index] += 1
-
-            except httpx.HTTPStatusError as e:
-                logger.warning(
-                    f"API request failed for key index {curr_index} with status {e.response.status_code}: {e.response.text[:200]}",
-                    command="LLMModel",
-                )
-                self.key_failure_count[curr_index] += 1
-                if e.response.status_code == 429:
-                    logger.warning(
-                        f"Rate limit hit for key index {curr_index}.",
-                        command="LLMModel",
-                    )
-
-            except (
-                httpx.RequestError,
-                KeyError,
-                ValueError,
-                json.JSONDecodeError,
-            ) as e:
-                logger.error(
-                    f"API request error for key index {curr_index}: {type(e).__name__} - {e}",
-                    command="LLMModel",
-                )
-                self.key_failure_count[curr_index] += 1
-
-            if retry < self.max_retries - 1:
-                logger.debug(
-                    f"Retrying after delay ({self.retry_delay}s)...", command="LLMModel"
-                )
-                await asyncio.sleep(self.retry_delay)
-
-        return "API 请求失败，已达最大重试次数。"
+        except httpx.TimeoutException as e:
+            logger.warning(f"API request timed out for key {api_key[:5]}...: {e}", command="LLMModel")
+            raise ModelException(f"API 请求超时: {e}") from e
+        except httpx.HTTPStatusError as e:
+            error_text = e.response.text[:200]
+            logger.error(
+                f"API request failed for key {api_key[:5]}... with status {e.response.status_code}: {error_text}",
+                command="LLMModel", e=e
+            )
+            raise ModelException(f"API 请求失败 (状态码 {e.response.status_code}): {error_text}") from e
+        except httpx.RequestError as e:
+            logger.error(f"API network request error for key {api_key[:5]}...: {e}", command="LLMModel", e=e)
+            raise ModelException(f"网络请求错误: {e}") from e
+        except (KeyError, IndexError, json.JSONDecodeError, ValueError) as e:
+            logger.error(f"Error processing API response for key {api_key[:5]}...: {e}", command="LLMModel", e=e)
+            raise ModelException(f"处理 API 响应失败: {e}") from e
+        except Exception as e:
+            logger.error(f"Unexpected error during API request for key {api_key[:5]}...: {e}", command="LLMModel", exc_info=True)
+            raise ModelException(f"发生意外错误: {e}") from e
 
     def _format_url(self, api_type: str, api_key: str) -> str:
 
@@ -428,7 +378,10 @@ class LLMModel(Model):
                 ],
             }
 
-        return url, headers, data
+        final_headers = get_user_agent()
+        final_headers.update(headers)
+
+        return url, final_headers, data
 
     def _extract_response_text(self, result: Dict[str, Any]) -> str:
         if self.api_type == "gemini":
