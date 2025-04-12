@@ -2,7 +2,7 @@ from typing import List, Dict, Union, Optional, Any, Tuple, Set
 from datetime import datetime, timedelta
 from collections import defaultdict
 from zhenxun.services.log import logger
-from nonebot.adapters.onebot.v11 import Bot
+from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, PrivateMessageEvent
 import time
 
 
@@ -241,28 +241,24 @@ async def check_message_count(
         return False
 
 
-def check_cooldown(user_id: int) -> bool:
+def check_cooldown(user_id: int | str) -> bool:
+    from .. import summary_cd_limiter
+
     try:
-        base_config = Config.get("summary_group")
-        cooldown_setting = base_config.get("SUMMARY_COOL_DOWN")
-        if not cooldown_setting:
-            return True
 
-        from ..store import Store
+        user_id_str = str(user_id)
+        is_ready = summary_cd_limiter.check(user_id_str)
+        if not is_ready:
+            left = summary_cd_limiter.left_time(user_id_str)
+            logger.debug(
+                f"用户 {user_id_str} 冷却检查：否 (剩余 {left:.1f}s)",
+                command="check_cooldown",
+            )
 
-        store = Store()
-        last_time = store.get_cooldown(user_id)
-
-        if not last_time:
-            return True
-
-        now = time.time()
-        if now - last_time >= cooldown_setting:
-            return True
-
-        return False
+        return is_ready
     except Exception as e:
         logger.error(
             f"检查冷却时间时出错: {e}", command="check_cooldown", session=user_id, e=e
         )
+
         return True

@@ -9,6 +9,7 @@ from zhenxun.configs.utils import PluginExtraData, RegisterConfig, PluginCdBlock
 from zhenxun.utils.rules import admin_check, ensure_group
 from zhenxun.utils.enum import PluginLimitType, LimitWatchType
 from zhenxun.services.log import logger
+from zhenxun.utils.utils import FreqLimiter
 from nonebot_plugin_alconna.uniseg import UniMessage, Target, MsgTarget
 from .utils.scheduler import set_scheduler
 
@@ -23,6 +24,23 @@ from nonebot_plugin_alconna import (
 )
 
 require("nonebot_plugin_apscheduler")
+
+# --- 实例化 FreqLimiter ---
+try:
+    # 从配置中获取冷却时间，如果获取失败或配置不存在，默认为 60 秒
+    cooldown_seconds = Config.get_config("summary_group", "SUMMARY_COOL_DOWN", 60)
+    if not isinstance(cooldown_seconds, int) or cooldown_seconds < 0:
+        logger.warning(f"配置项 SUMMARY_COOL_DOWN ({cooldown_seconds}) 无效，将使用默认值 60 秒")
+        cooldown_seconds = 60
+except Exception as e:
+    logger.error(f"读取 SUMMARY_COOL_DOWN 配置失败: {e}，将使用默认值 60 秒")
+    cooldown_seconds = 60
+
+# 创建插件级别的冷却限制器实例
+# 如果不需要冷却 (cooldown_seconds == 0)，FreqLimiter 内部会处理，check 总是返回 True
+summary_cd_limiter = FreqLimiter(cooldown_seconds)
+logger.info(f"群聊总结插件冷却限制器已初始化，冷却时间: {cooldown_seconds} 秒")
+# --- 实例化结束 ---
 
 
 def validate_and_parse_msg_count(count_input: Any) -> int:
@@ -429,6 +447,30 @@ async def _(
     parts: Match[List[Union[At, Text]]],
     target: MsgTarget,
 ):
+    user_id_str = event.get_user_id()
+    logger.debug(f"用户 {user_id_str} 尝试触发总结，即将检查冷却...")
+
+    # --- ！！！修改冷却检查逻辑！！！ ---
+    # 1. 检查是否为超级用户
+    is_superuser = await SUPERUSER(bot, event)
+
+    # 2. 如果不是超级用户，才进行冷却检查
+    if not is_superuser:
+        is_ready = summary_cd_limiter.check(user_id_str)
+        logger.debug(f"冷却检查结果 (非超级用户 {user_id_str}, is_ready): {is_ready}")
+
+        if not is_ready:
+            left = summary_cd_limiter.left_time(user_id_str)
+            logger.info(f"用户 {user_id_str} 触发总结命令，但在冷却中 ({left:.1f}s 剩余)")
+            await UniMessage.text(f"总结功能冷却中，请等待 {left:.1f} 秒后再试~").send(target)
+            return # 直接结束处理
+        else:
+            logger.debug(f"用户 {user_id_str} 不在冷却中，继续执行。")
+    else:
+        # 如果是超级用户，直接跳过冷却检查
+        logger.debug(f"用户 {user_id_str} 是超级用户，跳过冷却检查。")
+    # --- ！！！修改结束！！！ ---
+
     try:
         await summary_handler_impl(bot, event, message_count, style, parts, target)
     except Exception as e:
@@ -437,7 +479,7 @@ async def _(
             command="总结",
             session=event.get_user_id(),
             group_id=getattr(event, "group_id", None),
-            e=e,
+            exc_info=True,
         )
         try:
             await UniMessage.text(f"处理命令时出错: {str(e)}").send(target)

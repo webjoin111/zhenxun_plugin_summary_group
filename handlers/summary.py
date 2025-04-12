@@ -1,22 +1,23 @@
-# handlers/summary.py
 from typing import Union, List
-from nonebot import Bot
-from nonebot.adapters.onebot.v11 import GroupMessageEvent, PrivateMessageEvent
-from nonebot_plugin_alconna import Match, At, Text
+from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, PrivateMessageEvent
 from nonebot_plugin_alconna.uniseg import UniMessage, Target, MsgTarget
+from nonebot_plugin_alconna import Match, At, Text
+from nonebot.permission import SUPERUSER
 from zhenxun.services.log import logger
 from zhenxun.configs.config import Config
 from zhenxun.models.statistics import Statistics
-
+from .. import summary_cd_limiter
 from ..utils.message import (
     get_group_msg_history,
     MessageFetchException,
+    check_cooldown,
 )
 from ..utils.summary import (
     messages_summary,
     send_summary,
     ModelException,
 )
+import time
 
 
 async def handle_summary(
@@ -27,42 +28,31 @@ async def handle_summary(
     parts: Match[List[Union[At, Text]]],
     target: MsgTarget,
 ):
-    """处理总结命令
-
-    Args:
-        bot: Bot 实例
-        event: 消息事件
-        message_count: 消息数量
-        style: 总结风格
-        parts: 命令参数（@用户和文本内容）
-        target: 消息目标
-    """
-    user_id = event.get_user_id()
+    user_id_str = event.get_user_id()
     group_id = event.group_id if isinstance(event, GroupMessageEvent) else None
 
     if not group_id:
         logger.warning(
-            f"用户 {user_id} 尝试在非群聊中使用总结命令",
+            f"用户 {user_id_str} 尝试在非群聊中使用总结命令",
             command="总结",
-            session=user_id,
+            session=user_id_str,
         )
         await UniMessage.text("总结命令只能在群聊中使用。").send(target)
         return
 
     logger.debug(
-        f"用户 {user_id} 在群 {group_id} 触发了总结命令",
+        f"用户 {user_id_str} 在群 {group_id} 触发了总结命令 (冷却检查已通过)",
         command="总结",
-        session=user_id,
+        session=user_id_str,
         group_id=group_id,
     )
 
     try:
         base_config = Config.get("summary_group")
 
-        # --- 处理 parts: 分离 At 和 Text ---
         target_user_ids: set[str] = set()
         content_parts: list[str] = []
-        target_user_names: list[str] = []  # 用于 prompt
+        target_user_names: list[str] = []
 
         if parts.available:
             for part in parts.result:
@@ -81,19 +71,36 @@ async def handle_summary(
             f"总结参数: 消息数量={message_count}, 风格='{style_value or '默认'}', "
             f"内容过滤='{content_value or '无'}', 指定用户={target_user_ids or '无'}",
             command="总结",
-            session=user_id,
+            session=user_id_str,
             group_id=group_id,
         )
 
-        # 发送反馈消息
         feedback = (
             f"正在生成群聊总结{'（风格: ' + style_value + '）' if style_value else ''}"
         )
         feedback += f"{'（指定用户）' if target_user_ids else ''}，请稍候..."
         await UniMessage.text(feedback).send(target)
 
+        is_superuser = await SUPERUSER(bot, event)
+        if not is_superuser:
+
+            logger.debug(f"即将为用户 {user_id_str} (非超级用户) 启动冷却...")
+            summary_cd_limiter.start_cd(user_id_str)
+
+            next_available_time = summary_cd_limiter.next_time.get(user_id_str, 0)
+            current_time = time.time()
+            logger.debug(
+                f"用户 {user_id_str} (非超级用户) 冷却已启动。下次可用时间戳: {next_available_time:.2f}, 当前时间戳: {current_time:.2f}"
+            )
+        else:
+            logger.debug(
+                f"用户 {user_id_str} 是超级用户，不启动冷却",
+                command="总结",
+                session=user_id_str,
+            )
+
         try:
-            # 获取消息历史
+
             processed_messages, user_info_cache = await get_group_msg_history(
                 bot,
                 group_id,
@@ -143,7 +150,7 @@ async def handle_summary(
             return
 
         try:
-            # 生成总结
+
             logger.debug(
                 f"开始为群 {group_id} 生成总结，处理 {len(processed_messages)} 条消息",
                 command="总结",
@@ -179,10 +186,8 @@ async def handle_summary(
             await UniMessage.text("生成总结失败，请稍后再试。").send(target)
             return
 
-        # 发送总结
         success = await send_summary(bot, target, summary)
 
-        # 记录统计信息
         if success:
             logger.debug(
                 f"成功完成群 {group_id} 的总结命令，准备记录统计",
@@ -191,13 +196,17 @@ async def handle_summary(
             )
             try:
                 await Statistics.create(
-                    user_id=str(user_id),
+                    user_id=str(user_id_str),
                     group_id=str(group_id),
                     plugin_name="summary_group",
                     bot_id=str(bot.self_id),
+                    message_count=message_count,
+                    style=style_value,
+                    target_users=list(target_user_ids),
+                    content_filter=content_value,
                 )
                 logger.debug(
-                    f"记录插件调用统计成功: user={user_id}, group={group_id}",
+                    f"记录插件调用统计成功: user={user_id_str}, group={group_id}",
                     command="总结",
                 )
             except Exception as stat_e:
@@ -216,9 +225,9 @@ async def handle_summary(
         logger.error(
             f"处理总结命令时发生异常: {e}",
             command="总结",
-            session=user_id,
+            session=user_id_str,
             group_id=group_id,
-            e=e,
+            exc_info=True,
         )
         try:
             await UniMessage.text(f"处理命令时出错: {str(e)}").send(target)
@@ -226,6 +235,6 @@ async def handle_summary(
             logger.error(
                 "发送最终错误消息失败",
                 command="总结",
-                session=user_id,
+                session=user_id_str,
                 group_id=group_id,
             )
