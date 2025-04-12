@@ -10,6 +10,11 @@ from zhenxun.configs.config import Config
 from zhenxun.utils.platform import PlatformUtils, UserData
 
 
+base_config = Config.get("summary_group")
+if base_config is None:
+    logger.error("[utils/message.py] 无法加载 'summary_group' 配置!")
+    base_config = {}
+
 from .scheduler import SummaryException
 from .health import with_retry
 
@@ -205,10 +210,12 @@ async def get_group_msg_history(
 
     try:
 
+        max_retries = base_config.get("MAX_RETRIES")
+        retry_delay = base_config.get("RETRY_DELAY")
         return await with_retry(
             fetch_messages,
-            max_retries=Config.get("summary_group").get("MAX_RETRIES", 2),
-            retry_delay=Config.get("summary_group").get("RETRY_DELAY", 1),
+            max_retries=max_retries if max_retries is not None else 2,
+            retry_delay=retry_delay if retry_delay is not None else 1,
         )
     except MessageFetchException:
         raise
@@ -230,10 +237,16 @@ async def check_message_count(
             return False
 
         if min_count is None:
-            base_config = Config.get("summary_group")
+
             min_len = base_config.get("SUMMARY_MIN_LENGTH")
             max_len = base_config.get("SUMMARY_MAX_LENGTH")
-            min_count = min(min_len, max_len)
+            if min_len is None or max_len is None:
+                logger.warning(
+                    "无法从配置获取 SUMMARY_MIN/MAX_LENGTH，使用默认检查值 (50)"
+                )
+                min_count = 50
+            else:
+                min_count = min(min_len, max_len)
 
         return len(messages) >= min_count
     except Exception as e:

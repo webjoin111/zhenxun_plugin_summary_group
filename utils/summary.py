@@ -7,12 +7,24 @@ from zhenxun.configs.config import Config
 from zhenxun.services.log import logger
 from zhenxun.utils.platform import PlatformUtils, UserData
 
+
+base_config = Config.get("summary_group")
+if base_config is None:
+    logger.error("[utils/summary.py] 无法加载 'summary_group' 配置!")
+    base_config = {}
+
 from ..model import detect_model, ModelException
 
-from nonebot import require
 
-require("nonebot_plugin_htmlrender")
-from nonebot_plugin_htmlrender import md_to_pic
+md_to_pic = None
+if base_config.get("summary_output_type") == "image":
+    try:
+        from nonebot import require
+
+        require("nonebot_plugin_htmlrender")
+        from nonebot_plugin_htmlrender import md_to_pic
+    except Exception as e:
+        logger.warning(f"加载 htmlrender 失败，图片模式不可用: {e}")
 
 from .scheduler import SummaryException
 from .health import with_retry
@@ -88,11 +100,24 @@ async def messages_summary(
 
     try:
 
-        return await with_retry(
+        max_retries = base_config.get("MAX_RETRIES")
+        retry_delay = base_config.get("RETRY_DELAY")
+        summary_text = await with_retry(
             invoke_model,
-            max_retries=Config.get("summary_group").get("MAX_RETRIES", 3),
-            retry_delay=Config.get("summary_group").get("RETRY_DELAY", 2),
+            max_retries=max_retries if max_retries is not None else 3,
+            retry_delay=retry_delay if retry_delay is not None else 2,
         )
+
+        beautify_enabled = base_config.get("SUMMARY_BEAUTIFY_USERNAME")
+        if beautify_enabled:
+            if "<span" not in summary_text and target_user_names:
+
+                pass
+        elif "<span" in summary_text:
+
+            pass
+
+        return summary_text
     except ModelException as e:
         logger.error(
             f"总结生成失败，已达最大重试次数: {e}", command="messages_summary", e=e
@@ -228,14 +253,14 @@ async def process_message(
 
 
 async def generate_image(summary: str) -> bytes:
+
+    if md_to_pic is None:
+        raise ValueError("图片生成功能未启用或 htmlrender 未正确加载")
     try:
-        base_config = Config.get("summary_group")
-        if base_config.get("summary_output_type", "image") != "image":
-            raise ValueError("图片生成功能未启用")
 
         css_file = "github-markdown-dark.css"
+        theme = base_config.get("summary_theme")
 
-        theme = base_config.get("summary_theme", "dark")
         if theme == "light":
             css_file = "github-markdown-light.css"
         elif theme == "dark":
@@ -246,34 +271,11 @@ async def generate_image(summary: str) -> bytes:
             css_file = "vscode-light.css"
 
         css_path = (Path(__file__).parent.parent / "assert" / css_file).resolve()
-
-        logger.debug(f"使用主题 {theme}，CSS 文件: {css_path}", command="图片生成")
-        img = None
-        try:
-            logger.debug(f"开始调用 md_to_pic 生成图片", command="图片生成")
-            img = await md_to_pic(summary, css_path=css_path)
-
-            if img:
-                logger.debug(
-                    f"md_to_pic 返回类型: {type(img)}, 长度: {len(img)}",
-                    command="图片生成",
-                )
-            else:
-                logger.warning("md_to_pic 返回了 None", command="图片生成")
-        except Exception as md_e:
-            logger.error(f"md_to_pic 调用失败: {md_e}", command="图片生成", e=md_e)
-            raise
-
-        if not isinstance(img, bytes) or not img:
-            logger.error(
-                f"generate_image 未从 md_to_pic 获得有效的 bytes 数据。获得类型: {type(img)}",
-                command="图片生成",
-            )
-            raise ImageGenerationException("md_to_pic 未返回有效的图片数据")
+        logger.debug(f"使用主题 {theme or '默认'} 生成图片", command="图片生成")
+        img = await md_to_pic(summary, css_path=css_path)
 
         return img
     except Exception as e:
-
         if not isinstance(e, ImageGenerationException):
             logger.error(f"生成图片过程中发生意外错误: {e}", command="图片生成", e=e)
             raise ImageGenerationException(f"图片生成失败: {str(e)}")
@@ -283,68 +285,64 @@ async def generate_image(summary: str) -> bytes:
 
 async def send_summary(bot: Bot, target: MsgTarget, summary: str) -> bool:
     try:
-        base_config = Config.get("summary_group")
-        reply_msg = None
 
-        output_type = base_config.get("summary_output_type", "image")
-        fallback_enabled = base_config.get("summary_fallback_enabled", False)
+        reply_msg = None
+        output_type = base_config.get("summary_output_type")
+        fallback_enabled = base_config.get("summary_fallback_enabled")
+        beautify_enabled = base_config.get("SUMMARY_BEAUTIFY_USERNAME")
 
         if output_type == "image":
             try:
-                logger.debug(f"开始生成总结图片", command="总结发送")
                 img_bytes = await generate_image(summary)
 
-                if img_bytes:
-                    logger.debug(
-                        f"generate_image 返回了 bytes 数据，长度: {len(img_bytes)}",
-                        command="总结发送",
-                    )
-                    reply_msg = UniMessage.image(raw=img_bytes)
-                    logger.debug(
-                        f"总结将以图片方式发送到 target: {target.id}",
-                        command="总结发送",
-                    )
-                else:
-                    logger.error(
-                        "generate_image 意外返回了 None 或空 bytes", command="总结发送"
-                    )
-                    if not fallback_enabled:
-                        raise ImageGenerationException("图片生成失败，且未启用回退模式")
-                    logger.warning("图片生成失败，将回退到文本模式", command="总结发送")
-            except Exception as e:
+                reply_msg = UniMessage.image(raw=img_bytes)
+            except (ImageGenerationException, ValueError) as e:
                 if not fallback_enabled:
+
                     logger.error(
-                        f"图片生成失败且未启用回退模式: {e}", command="总结发送", e=e
+                        f"图片生成失败且未启用文本回退: {e}",
+                        command="send_summary",
+                        e=e,
                     )
-                    raise ImageGenerationException(f"图片生成失败: {str(e)}")
+                    return False
+
                 logger.warning(
-                    f"图片生成失败，将回退到文本模式: {e}", command="总结发送"
+                    f"图片生成失败，已启用文本回退: {e}", command="send_summary"
                 )
 
-        if not reply_msg:
-            reply_msg = UniMessage.text(summary)
-            logger.debug(
-                f"总结将以文本方式发送到 target: {target.id}", command="总结发送"
-            )
+        if reply_msg is None:
+            error_prefix = ""
+            if output_type == "image" and fallback_enabled:
+
+                error_prefix = "⚠️ 图片生成失败，降级为文本输出：\n\n"
+
+            plain_summary = summary.strip()
+
+            if "<span" in plain_summary:
+                import re
+
+                plain_summary = re.sub(
+                    r"<span[^>]*>([^<]+?)</span>", r"\1", plain_summary
+                )
+
+            max_text_length = 4500
+            full_text = f"{error_prefix}{plain_summary}"
+
+            if len(full_text) > max_text_length:
+                full_text = full_text[:max_text_length] + "...(内容过长已截断)"
+            reply_msg = UniMessage.text(full_text)
 
         if reply_msg:
-
-            try:
-                exported_msg = await reply_msg.export(bot)
-
-            except Exception as export_e:
-                logger.error(
-                    f"UniMessage 导出失败: {export_e}", command="总结发送", e=export_e
-                )
-
             await reply_msg.send(target, bot)
-            logger.debug(f"总结成功发送到 target: {target.id}", command="总结发送")
-            return True
-        else:
-            logger.error(
-                f"无法构造有效的总结消息发送到 target: {target.id}", command="总结发送"
+
+            logger.info(
+                f"总结已发送，类型: {output_type or 'text'}", command="send_summary"
             )
-            return False
+            return True
+
+        logger.error("无法发送总结：回复消息为空", command="send_summary")
+        return False
+
     except Exception as e:
-        logger.error(f"发送总结消息时发生异常: {e}", command="总结发送", e=e)
+        logger.error(f"发送总结失败: {e}", command="send_summary", e=e)
         return False

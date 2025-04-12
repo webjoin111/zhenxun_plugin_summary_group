@@ -11,6 +11,11 @@ from zhenxun.configs.config import Config
 from ..store import Store
 
 
+base_config = Config.get("summary_group")
+if base_config is None:
+    logger.error("[utils/scheduler.py] 无法加载 'summary_group' 配置!")
+    base_config = {}
+
 summary_semaphore = asyncio.Semaphore(2)
 summary_queue = asyncio.Queue()
 task_processor_started = False
@@ -66,7 +71,9 @@ async def update_single_group_schedule(group_id: int, data: dict) -> tuple:
 
         hour = data.get("hour", 0)
         minute = data.get("minute", 0)
-        least_message_count = data.get("least_message_count", 1000)
+
+        default_least_count = base_config.get("SUMMARY_MAX_LENGTH")
+        least_message_count = data.get("least_message_count", default_least_count)
         style = data.get("style", None)
 
         second = group_id % 60
@@ -211,12 +218,10 @@ async def process_summary_queue() -> None:
 
     logger.debug("总结任务队列处理器已启动，开始监听队列", command="队列处理器")
 
-    concurrent_tasks = 2
-    try:
-        base_config = Config.get("summary_group")
-        concurrent_tasks = base_config.get("CONCURRENT_TASKS", 2)
-    except Exception as e:
-        logger.warning(f"获取并发任务配置失败，使用默认值 2: {e}", command="队列处理器")
+    concurrent_tasks = base_config.get("CONCURRENT_TASKS")
+    if concurrent_tasks is None:
+        logger.warning("未配置 CONCURRENT_TASKS，使用默认值 2")
+        concurrent_tasks = 2
 
     semaphore = asyncio.Semaphore(concurrent_tasks)
 
@@ -270,9 +275,7 @@ async def process_summary_queue() -> None:
                                 summary_queue.task_done()
                                 continue
 
-                            if await BotConsole.is_block_plugin(
-                                bot_id, plugin_name
-                            ):
+                            if await BotConsole.is_block_plugin(bot_id, plugin_name):
                                 logger.info(
                                     f"Plugin '{plugin_name}' is blocked for Bot {bot_id}, skipping task [{task_id}].",
                                     command="队列处理器",
@@ -328,8 +331,12 @@ async def process_summary_queue() -> None:
                                 group_id=group_id,
                             )
 
-                            base_config = Config.get("summary_group")
                             min_len_required = base_config.get("SUMMARY_MIN_LENGTH")
+                            if min_len_required is None:
+                                logger.warning(
+                                    "未配置 SUMMARY_MIN_LENGTH，使用默认值 50 进行检查"
+                                )
+                                min_len_required = 50
                             if message_count < min_len_required:
                                 logger.debug(
                                     f"[{task_id}] 群 {group_id} 消息数量不足 "
@@ -548,9 +555,10 @@ def set_scheduler() -> None:
 
                 hour = data.get("hour", 0)
                 minute = data.get("minute", 0)
+
+                default_least_count = base_config.get("SUMMARY_MAX_LENGTH")
                 least_message_count = data.get(
-                    "least_message_count",
-                    Config.get("summary_group").get("SUMMARY_MAX_LENGTH"),
+                    "least_message_count", default_least_count
                 )
                 style = data.get("style", None)
 

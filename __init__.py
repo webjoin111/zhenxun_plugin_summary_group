@@ -26,18 +26,24 @@ from nonebot_plugin_alconna import (
 require("nonebot_plugin_apscheduler")
 
 
+base_config = Config.get("summary_group")
+if base_config is None:
+    logger.error("[__init__.py] 无法加载 'summary_group' 配置!")
+    base_config = {}
+
+
 try:
 
-    cooldown_seconds = Config.get_config("summary_group", "SUMMARY_COOL_DOWN", 60)
+    cooldown_seconds = base_config.get("SUMMARY_COOL_DOWN")
     if not isinstance(cooldown_seconds, int) or cooldown_seconds < 0:
-        logger.warning(
-            f"配置项 SUMMARY_COOL_DOWN ({cooldown_seconds}) 无效，将使用默认值 60 秒"
-        )
+        logger.warning(f"配置项 SUMMARY_COOL_DOWN 值无效，使用 60")
         cooldown_seconds = 60
-except Exception as e:
-    logger.error(f"读取 SUMMARY_COOL_DOWN 配置失败: {e}，将使用默认值 60 秒")
+except TypeError:
+    logger.warning("配置项 SUMMARY_COOL_DOWN 未找到，使用 60")
     cooldown_seconds = 60
-
+except Exception as e:
+    logger.error(f"读取 SUMMARY_COOL_DOWN 配置失败: {e}，使用 60")
+    cooldown_seconds = 60
 
 summary_cd_limiter = FreqLimiter(cooldown_seconds)
 logger.info(f"群聊总结插件冷却限制器已初始化，冷却时间: {cooldown_seconds} 秒")
@@ -48,18 +54,19 @@ def validate_and_parse_msg_count(count_input: Any) -> int:
         f"--- Validator validate_and_parse_msg_count called with input: {repr(count_input)} (type: {type(count_input)}) ---"
     )
     try:
-
         count = int(count_input)
     except (ValueError, TypeError):
         logger.warning(
             f"Validation failed: Input '{repr(count_input)}' cannot be converted to integer."
         )
-
         raise ValueError("消息数量必须是一个有效的整数")
 
-    base_config = Config.get("summary_group")
     min_len = base_config.get("SUMMARY_MIN_LENGTH")
     max_len = base_config.get("SUMMARY_MAX_LENGTH")
+
+    if min_len is None or max_len is None:
+        raise ValueError("配置缺失: MIN/MAX_LENGTH")
+
     if not (min_len <= count <= max_len):
         logger.warning(
             f"Validation failed: {count} not in range [{min_len}, {max_len}]"
@@ -67,7 +74,6 @@ def validate_and_parse_msg_count(count_input: Any) -> int:
         raise ValueError(f"总结消息数量应在 {min_len} 到 {max_len} 之间")
 
     logger.debug(f"Validation successful for count: {count}")
-
     return count
 
 

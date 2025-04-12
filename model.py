@@ -12,6 +12,11 @@ from zhenxun.utils.http_utils import AsyncHttpx
 from zhenxun.utils.user_agent import get_user_agent
 
 
+base_config = Config.get("summary_group")
+if base_config is None:
+    logger.error("[model.py] 无法加载 'summary_group' 配置!")
+    base_config = {}
+
 class ModelException(Exception):
     pass
 
@@ -414,85 +419,37 @@ class LLMModel(Model):
 
 def detect_model() -> Model:
     try:
+        
+        logger.debug("[detect_model] Starting model detection using preloaded base_config...")
 
-        logger.debug("[detect_model] Starting model detection...")
+        model_type = base_config.get("model_type") or "llm" 
 
-        base_config = Config.get("summary_group")
-
-        if base_config:
-            logger.debug(f"[detect_model] Found 'summary_group' config section.")
-        else:
-            logger.warning(
-                "[detect_model] Could not find 'summary_group' config section in global config!"
-            )
-            base_config = {}
-
-        model_type = base_config.get("model_type", "llm")
-
-        logger.debug(f"[detect_model] Determined model_type: {model_type}")
-
-        if model_type and model_type.lower() == "llm":
-
-            logger.debug(
-                "[detect_model] Model type is LLM. Reading LLM specific configs."
-            )
-
-            raw_api_keys_from_config = base_config.get("SUMMARY_API_KEYS")
-
-            logger.debug(
-                f"[detect_model] Raw value for SUMMARY_API_KEYS from config: {repr(raw_api_keys_from_config)} (Type: {type(raw_api_keys_from_config)})"
-            )
-
-            api_keys = base_config.get("SUMMARY_API_KEYS", None)
-
+        if model_type.lower() == "llm":
+            api_keys = base_config.get("SUMMARY_API_KEYS")
+            api_base = base_config.get("SUMMARY_API_BASE")
+            model_name = base_config.get("SUMMARY_MODEL")
             api_type = base_config.get("SUMMARY_API_TYPE")
-            api_base = base_config.get(
-                "SUMMARY_API_BASE", "https://generativelanguage.googleapis.com"
-            )
-            model_name = base_config.get("SUMMARY_MODEL", "gemini-1.5-flash")
-            openai_compat = base_config.get("SUMMARY_OPENAI_COMPAT", False)
+            openai_compat = base_config.get("SUMMARY_OPENAI_COMPAT")
             proxy = base_config.get("PROXY")
-            timeout = base_config.get("TIME_OUT", 120)
-            max_retries = base_config.get("MAX_RETRIES", 3)
-            retry_delay = base_config.get("RETRY_DELAY", 2)
+            timeout = base_config.get("TIME_OUT")
+            max_retries = base_config.get("MAX_RETRIES")
+            retry_delay = base_config.get("RETRY_DELAY")
 
-            logger.debug(f"[detect_model] Preparing to initialize LLMModel with:")
-            logger.debug(f"  api_keys (value passed to init): {repr(api_keys)}")
-            logger.debug(f"  api_base: {api_base}")
-            logger.debug(f"  summary_model: {model_name}")
-            logger.debug(f"  api_type: {api_type}")
-            logger.debug(f"  openai_compat: {openai_compat}")
-            logger.debug(f"  proxy: {proxy}")
-            logger.debug(f"  timeout: {timeout}")
-            logger.debug(f"  max_retries: {max_retries}")
-            logger.debug(f"  retry_delay: {retry_delay}")
-
+            
             return LLMModel(
                 api_keys=api_keys,
-                api_base=api_base,
-                summary_model=model_name,
+                api_base=api_base or "https://generativelanguage.googleapis.com",
+                summary_model=model_name or "gemini-1.5-flash",
                 api_type=api_type,
-                openai_compat=openai_compat,
+                openai_compat=openai_compat or False,
                 proxy=proxy,
-                timeout=timeout,
-                max_retries=max_retries,
-                retry_delay=retry_delay,
+                timeout=timeout if timeout is not None else 120,
+                max_retries=max_retries if max_retries is not None else 3,
+                retry_delay=retry_delay if retry_delay is not None else 2,
             )
 
-        logger.warning(
-            f"[detect_model] Unsupported model_type '{model_type}' or model_type not specified. Falling back to default LLMModel()."
-        )
-
-        return LLMModel()
-
+        logger.warning(f"Unsupported model_type '{model_type}'. Falling back to default LLMModel.")
+        return LLMModel() 
     except Exception as e:
-        logger.error(
-            f"[detect_model] Error during model detection: {e}",
-            command="detect_model",
-        )
-
-        logger.error(
-            "[detect_model] Falling back to default LLMModel() due to exception."
-        )
-
+        logger.error(f"Model detection failed: {e}. Falling back to default LLMModel.")
         return LLMModel()
