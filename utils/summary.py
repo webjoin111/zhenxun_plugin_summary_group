@@ -10,6 +10,7 @@ from zhenxun.utils.platform import PlatformUtils, UserData
 from ..model import detect_model
 
 from nonebot import require
+
 require("nonebot_plugin_htmlrender")
 from nonebot_plugin_htmlrender import md_to_pic
 
@@ -43,41 +44,42 @@ async def messages_summary(
         logger.warning("没有足够的聊天记录可供总结", command="messages_summary")
         return "没有足够的聊天记录可供总结。"
 
-    prompt = ""
+    prompt_parts = []
+
+    if style:
+        prompt_parts.append(f"重要指令：请严格使用 '{style}' 的风格进行总结。")
+        logger.debug(
+            f"已应用总结风格: '{style}' (置于Prompt开头)", command="messages_summary"
+        )
+
     if target_user_names:
         user_list_str = ", ".join(target_user_names)
         if content:
-            prompt = (
-                f"请在以下聊天记录中，详细总结用户 [{user_list_str}] "
-                f"仅与'{content}'相关的发言内容和主要观点。排版需层次清晰，用中文回答。"
+            prompt_parts.append(
+                f"任务：请在以下聊天记录中，详细总结用户 [{user_list_str}] 仅与'{content}'相关的发言内容和主要观点。"
             )
         else:
-            prompt = (
-                f"请详细总结用户 [{user_list_str}] 在以下聊天记录中的所有发言内容和主要观点。"
-                f"排版需层次清晰，用中文回答。"
+            prompt_parts.append(
+                f"任务：请详细总结用户 [{user_list_str}] 在以下聊天记录中的所有发言内容和主要观点。"
             )
+
         logger.debug(
             f"为指定用户生成总结, 用户: {user_list_str}, 内容过滤: '{content or '无'}'",
             command="messages_summary",
         )
     elif content:
-        prompt = (
-            f"请详细总结以下对话中仅与'{content}'相关的内容。"
-            f"排版需层次清晰, 用中文回答。"
-        )
+        prompt_parts.append(f"任务：请详细总结以下对话中仅与'{content}'相关的内容。")
         logger.debug(f"为指定内容 '{content}' 生成总结", command="messages_summary")
     else:
-        prompt = (
-            "请详细总结这个群聊的内容脉络，要有什么人说了什么。"
-            "排版需层次清晰, 用中文回答。"
-        )
+
+        prompt_parts.append("任务：请分析并总结以下聊天记录的主要讨论内容和信息脉络。")
         logger.debug("生成通用群聊总结", command="messages_summary")
 
-    final_prompt = prompt
-    if style:
-        style_instruction = f"\n\n请注意：请使用'{style}'的风格进行总结。"
-        final_prompt += style_instruction
-        logger.debug(f"已应用总结风格: '{style}'", command="messages_summary")
+    prompt_parts.append("要求：排版需层次清晰，用中文回答。请包含谁说了什么重要内容。")
+
+    final_prompt = "\n\n".join(prompt_parts)
+
+    logger.debug(f"最终构建的 Prompt: {final_prompt}", command="messages_summary")
 
     async def invoke_model():
         try:
@@ -323,10 +325,10 @@ async def send_summary(bot: Bot, target: MsgTarget, summary: str) -> bool:
             )
 
         if reply_msg:
-            # logger.debug(f"构造的 UniMessage: {repr(reply_msg)}", command="总结发送")
+
             try:
                 exported_msg = await reply_msg.export(bot)
-                # logger.debug(f"导出的消息: {repr(exported_msg)}", command="总结发送")
+
             except Exception as export_e:
                 logger.error(
                     f"UniMessage 导出失败: {export_e}", command="总结发送", e=export_e

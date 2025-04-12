@@ -94,11 +94,13 @@ __plugin_meta__ = PluginMetadata(
         "    - 例如：总结 500 @张三 @李四\n"
         "    - 例如：总结 200 -p 正式 关于BUG @张三\n\n"
         "【仅限超级用户的命令】\n"
-        "  定时总结 [HH:MM或HHMM] [最少消息数量] [-g 群号] [-all]\n"
+        "  定时总结 [HH:MM或HHMM] [最少消息数量] [-p 风格] [-g 群号] [-all]\n"
         "    - 设置定时生成消息总结\n"
+        "    - 可选 -p/--prompt 指定总结风格 (例如: -p 正式, --prompt 锐评)\n"
         "    - -g 参数可指定特定群号\n"
         "    - -all 参数将对所有群生效\n"
-        "    - 例如：定时总结 22:00 100 -g 123456\n\n"
+        "    - 例如：定时总结 22:00 100 -g 123456\n"
+        "    - 例如：定时总结 08:30 200 -p 简洁\n\n"
         "  定时总结取消 [-g 群号] [-all]\n"
         "    - 取消本群或指定群的定时内容总结\n\n"
         "  总结调度状态 [-d]\n"
@@ -309,6 +311,10 @@ summary_set = on_alconna(
             ),
         ],
         Option(
+            "-p|--prompt",
+            Args["style", str, Field(completion="指定总结风格，如：锐评, 正式 (可选)")],
+        ),
+        Option(
             "-g",
             Args[
                 "target_group_id", int, Field(completion="指定群号 (需要超级用户权限)")
@@ -318,15 +324,15 @@ summary_set = on_alconna(
         meta=CommandMeta(
             description="设置定时群聊总结",
             usage=(
-                "定时总结 <时间> [最少消息数量] [-g 群号 | -all]\n"
+                "定时总结 <时间> [最少消息数量] [-p|--prompt 风格] [-g 群号 | -all]\n"
                 "时间格式: HH:MM 或 HHMM\n"
                 "说明: 设置本群需管理员, -g/-all 仅限超级用户"
             ),
             example=(
                 "定时总结 22:00\n"
-                "定时总结 0830 500\n"
+                "定时总结 0830 500 -p 正式\n"
                 "定时总结 23:00 -g 123456\n"
-                "定时总结 09:00 1000 -all"
+                "定时总结 09:00 1000 -p 锐评 -all"
             ),
             compact=True,
         ),
@@ -448,8 +454,18 @@ async def _(
 ):
     try:
         arp = result.result
+        if not arp:
+            logger.error("在 summary_set handler 中 Arparma result 为 None")
+            await UniMessage.text("命令解析内部错误，请重试或联系管理员。").send(target)
+            return
+
         time_str_match = arp.query("time_str")
         least_count_match = arp.query("least_message_count")
+
+        style_value = arp.query("p.style")
+        if style_value is None:
+            style_value = arp.query("prompt.style")
+        logger.debug(f"使用 arp.query 提取的 style_value: {repr(style_value)}")
 
         if not time_str_match:
             await UniMessage.text("必须提供时间参数").send(target)
@@ -467,9 +483,13 @@ async def _(
         except ValueError as e:
             await UniMessage.text(str(e)).send(target)
             return
+        except Exception as e:
+            logger.error(f"解析时间或数量时出错: {e}", command="定时总结")
+            await UniMessage.text(f"解析时间或数量时出错: {e}").send(target)
+            return
 
         await summary_set_handler_impl(
-            bot, event, result, time_tuple, least_count, target
+            bot, event, result, time_tuple, least_count, style_value, target
         )
     except Exception as e:
         logger.error(

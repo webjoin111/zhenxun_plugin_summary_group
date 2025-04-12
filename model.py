@@ -112,7 +112,6 @@ class LLMModel(Model):
             except Exception as e:
                 logger.error(
                     f"[LLMModel.__init__] 处理字符串API密钥时发生意外错误: {e}",
-                    exc_info=True,
                 )
                 processed_keys = []
 
@@ -297,7 +296,6 @@ class LLMModel(Model):
                 logger.warning(
                     f"API request failed for key index {curr_index} with status {e.response.status_code}: {e.response.text[:200]}",
                     command="LLMModel",
-                    e=e,
                 )
                 self.key_failure_count[curr_index] += 1
                 if e.response.status_code == 429:
@@ -315,7 +313,6 @@ class LLMModel(Model):
                 logger.error(
                     f"API request error for key index {curr_index}: {type(e).__name__} - {e}",
                     command="LLMModel",
-                    e=e,
                 )
                 self.key_failure_count[curr_index] += 1
 
@@ -539,7 +536,6 @@ def detect_model() -> Model:
         logger.error(
             f"[detect_model] Error during model detection: {e}",
             command="detect_model",
-            exc_info=True,
         )
 
         logger.error(

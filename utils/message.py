@@ -7,7 +7,7 @@ import time
 
 
 from zhenxun.configs.config import Config
-from zhenxun.utils.platform import PlatformUtils, UserData # 确保导入
+from zhenxun.utils.platform import PlatformUtils, UserData
 
 
 from .scheduler import SummaryException
@@ -17,21 +17,14 @@ from .health import with_retry
 class MessageFetchException(SummaryException):
     pass
 
-class MessageProcessException(SummaryException): # 确认定义了此异常
+
+class MessageProcessException(SummaryException):
     pass
 
-# --- 移除 validate_message_count 函数 ---
-# def validate_message_count(num: int) -> bool:
-#     base_config = Config.get("summary_group")
-#     min_len = base_config.get("SUMMARY_MIN_LENGTH")
-#     max_len = base_config.get("SUMMARY_MAX_LENGTH")
-#     return min_len <= num <= max_len
-# --- 移除结束 ---
 
 async def get_raw_group_msg_history(bot: Bot, group_id: int, count: int) -> list:
-    """仅获取原始群消息历史记录"""
     try:
-        # bot.get_group_msg_history 调用本身不依赖插件配置
+
         response = await bot.get_group_msg_history(group_id=group_id, count=count)
         raw_messages = response.get("messages", [])
         logger.debug(
@@ -53,11 +46,6 @@ async def get_raw_group_msg_history(bot: Bot, group_id: int, count: int) -> list
 async def process_message(
     messages: list, bot: Bot, group_id: int
 ) -> Tuple[List[Dict[str, str]], Dict[str, str]]:
-    """处理原始消息数据, 获取用户名和样式化用户名
-    Returns:
-        Tuple[List[Dict[str, str]], Dict[str, str]]:
-              ([{'name': 'PlainName', 'styled_name': '<span...>Name</span>', 'content': 'text'}, ...], user_info_cache)
-    """
     logger.debug(
         f"开始处理群 {group_id} 的 {len(messages)} 条原始消息 (准备普通和样式名)",
         command="消息处理",
@@ -71,19 +59,15 @@ async def process_message(
             str(msg.get("user_id")) for msg in messages if msg.get("user_id")
         )
 
-        # 批量获取用户信息（如果平台支持会更好）
-        # 这里仍然用循环示例
         for user_id_str in user_ids_to_fetch:
             if user_id_str not in user_info_cache:
-                sender_name = f"用户_{user_id_str[-4:]}"  # Default
+                sender_name = f"用户_{user_id_str[-4:]}"
                 try:
                     user_data = await PlatformUtils.get_user(
                         bot, user_id_str, str(group_id)
                     )
                     if user_data:
-                        sender_name = (
-                            user_data.card or user_data.name or sender_name
-                        )
+                        sender_name = user_data.card or user_data.name or sender_name
                     user_info_cache[user_id_str] = sender_name
                 except Exception as e:
                     logger.warning(
@@ -102,10 +86,11 @@ async def process_message(
                 continue
             user_id_str = str(user_id)
             sender_name = user_info_cache.get(user_id_str, f"用户_{user_id_str[-4:]}")
-            # 生成带样式的名字
-            styled_sender_name = f'<span style="color: #a5d6ff; font-weight: bold;">{sender_name}</span>'
 
-            # 处理消息段提取文本
+            styled_sender_name = (
+                f'<span style="color: #a5d6ff; font-weight: bold;">{sender_name}</span>'
+            )
+
             raw_segments = msg.get("message", [])
             text_segments: list[str] = []
             for segment in raw_segments:
@@ -120,7 +105,7 @@ async def process_message(
                 elif seg_type == "at" and "qq" in seg_data:
                     qq = str(seg_data["qq"])
                     at_name = user_info_cache.get(qq)
-                    if not at_name:  # Attempt to fetch if not in cache
+                    if not at_name:
                         try:
                             at_user_data = await PlatformUtils.get_user(
                                 bot, qq, str(group_id)
@@ -131,7 +116,7 @@ async def process_message(
                                     or at_user_data.name
                                     or f"用户_{qq[-4:]}"
                                 )
-                                user_info_cache[qq] = at_name  # Cache it
+                                user_info_cache[qq] = at_name
                             else:
                                 at_name = f"用户_{qq[-4:]}"
                         except Exception:
@@ -140,7 +125,7 @@ async def process_message(
 
             if text_segments:
                 message_content = "".join(text_segments)
-                # 同时存储普通名字和带样式的名字
+
                 processed_log.append(
                     {
                         "name": sender_name,
@@ -157,9 +142,13 @@ async def process_message(
 
     except Exception as e:
         logger.error(
-            f"处理群 {group_id} 消息时出错: {e}", command="消息处理", e=e, group_id=group_id
+            f"处理群 {group_id} 消息时出错: {e}",
+            command="消息处理",
+            e=e,
+            group_id=group_id,
         )
         raise MessageProcessException(f"消息处理失败: {str(e)}")
+
 
 async def get_group_msg_history(
     bot: Bot, group_id: int, count: int, target_user_ids: Set[str] | None = None

@@ -41,7 +41,6 @@ class Store:
         except json.JSONDecodeError as e:
             logger.error(
                 f"加载存储数据失败: JSON 解析错误于 {self.file_path} - {e}",
-                exc_info=True,
             )
             try:
                 corrupted_path = self.file_path.with_suffix(
@@ -53,7 +52,7 @@ class Store:
                 logger.error(f"备份损坏的配置文件失败: {backup_e}")
             return {}
         except Exception as e:
-            logger.error(f"加载存储数据时发生未知错误: {e}", exc_info=True)
+            logger.error(f"加载存储数据时发生未知错误: {e}")
             return {}
 
     def _save_data(self) -> bool:
@@ -66,11 +65,11 @@ class Store:
             return True
         except TypeError as e:
             logger.error(
-                f"保存存储数据失败: 数据无法序列化为 JSON - {e}", exc_info=True
+                f"保存存储数据失败: 数据无法序列化为 JSON - {e}"
             )
             return False
         except Exception as e:
-            logger.error(f"保存存储数据失败: {e}", exc_info=True)
+            logger.error(f"保存存储数据失败: {e}")
             return False
 
     def set(self, group_id: int, data: dict) -> bool:
@@ -98,7 +97,7 @@ class Store:
             self.data[str(group_id)] = validated_data
             return self._save_data()
         except Exception as e:
-            logger.error(f"设置群 {group_id} 配置失败: {e}", exc_info=True)
+            logger.error(f"设置群 {group_id} 配置失败: {e}")
             return False
 
     def get(self, group_id: int) -> dict | None:
@@ -112,7 +111,7 @@ class Store:
                 return self._save_data()
             return True
         except Exception as e:
-            logger.error(f"移除群 {group_id} 配置失败: {e}", exc_info=True)
+            logger.error(f"移除群 {group_id} 配置失败: {e}")
             return False
 
     def remove_all(self) -> bool:
@@ -120,7 +119,7 @@ class Store:
             self.data.clear()
             return self._save_data()
         except Exception as e:
-            logger.error(f"移除所有群组配置失败: {e}", exc_info=True)
+            logger.error(f"移除所有群组配置失败: {e}")
             return False
 
     def get_all_groups(self) -> list:
@@ -152,6 +151,6 @@ class Store:
                     return False
                 return True
             except Exception as e:
-                logger.error(f"事务操作失败，回滚更改: {e}", exc_info=True)
+                logger.error(f"事务操作失败，回滚更改: {e}")
                 self.data = data_backup
                 return False
