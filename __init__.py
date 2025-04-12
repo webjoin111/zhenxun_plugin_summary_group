@@ -355,7 +355,7 @@ summary_set = on_alconna(
             compact=True,
         ),
     ),
-    rule=admin_check("summary_group", "SUMMARY_ADMIN_LEVEL") & ensure_group,
+    rule=admin_check("summary_group", "SUMMARY_ADMIN_LEVEL"),
     priority=5,
     block=True,
 )
@@ -377,7 +377,7 @@ summary_remove = on_alconna(
             example="定时总结取消\n定时总结取消 -g 123456\n定时总结取消 -all",
         ),
     ),
-    rule=admin_check("summary_group", "SUMMARY_ADMIN_LEVEL") & ensure_group,
+    rule=admin_check("summary_group", "SUMMARY_ADMIN_LEVEL"),
     priority=4,
     block=True,
 )
