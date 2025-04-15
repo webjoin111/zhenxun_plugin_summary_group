@@ -11,8 +11,10 @@ from zhenxun.models.group_console import GroupConsole
 from zhenxun.models.ban_console import BanConsole
 from .. import summary_cd_limiter
 from ..utils.message import (
-    get_group_msg_history,
+    get_raw_group_msg_history,
+    process_message,
     MessageFetchException,
+    MessageProcessException,
     check_cooldown,
 )
 from ..utils.summary import (
@@ -161,34 +163,73 @@ async def handle_summary(
 
         try:
 
-            processed_messages, user_info_cache = await get_group_msg_history(
-                bot,
-                group_id,
-                message_count,
-                target_user_ids if target_user_ids else None,
-            )
-
-            if not processed_messages:
-                msg = (
-                    f"未能获取到{'指定用户的' if target_user_ids else ''}有效聊天记录。"
-                )
-                logger.warning(
-                    f"群 {group_id}: {msg}", command="总结", group_id=group_id
-                )
-                await UniMessage.text(msg).send(target)
-                return
-
             logger.debug(
-                f"从群 {group_id} 获取了 {len(processed_messages)} 条有效消息{'（已过滤）' if target_user_ids else ''}",
+                f"开始获取原始消息: count={message_count}",
+                command="总结",
+                group_id=group_id,
+            )
+            raw_messages = await get_raw_group_msg_history(bot, group_id, message_count)
+            if not raw_messages:
+                logger.warning(
+                    f"未能获取到群 {group_id} 的聊天记录",
+                    command="总结",
+                    group_id=group_id,
+                )
+                await UniMessage.text("未能获取到聊天记录。").send(target)
+                return
+            logger.debug(
+                f"成功获取 {len(raw_messages)} 条原始消息",
                 command="总结",
                 group_id=group_id,
             )
 
-            if target_user_ids and user_info_cache:
+            filtered_messages = raw_messages
+            if target_user_ids:
+                filtered_messages = [
+                    msg
+                    for msg in raw_messages
+                    if str(msg.get("user_id")) in target_user_ids
+                ]
+                logger.debug(
+                    f"过滤后剩余 {len(filtered_messages)} 条消息 (来自用户: {target_user_ids})",
+                    command="总结",
+                    group_id=group_id,
+                )
+                if not filtered_messages:
+                    msg = f"未能获取到指定用户的有效聊天记录。"
+                    logger.warning(
+                        f"群 {group_id}: {msg}", command="总结", group_id=group_id
+                    )
+                    await UniMessage.text(msg).send(target)
+                    return
+
+            logger.debug("开始处理消息...", command="总结", group_id=group_id)
+
+            processed_messages, user_info_cache = await process_message(
+                filtered_messages, bot, group_id
+            )
+            if not processed_messages:
+                logger.warning(
+                    f"处理消息后群 {group_id} 没有有效内容",
+                    command="总结",
+                    group_id=group_id,
+                )
+                await UniMessage.text("未能找到有效消息进行处理。").send(target)
+                return
+            logger.debug(
+                f"成功处理消息，得到 {len(processed_messages)} 条记录",
+                command="总结",
+                group_id=group_id,
+            )
+
+            if target_user_ids:
                 target_user_names = [
                     user_info_cache.get(uid, f"用户{uid[-4:]}")
                     for uid in target_user_ids
                 ]
+                logger.debug(
+                    f"将对用户 {target_user_names} 进行过滤总结", command="总结"
+                )
 
         except MessageFetchException as e:
             logger.error(
@@ -199,14 +240,23 @@ async def handle_summary(
             )
             await UniMessage.text(f"获取消息历史失败: {str(e)}").send(target)
             return
-        except Exception as e:
+        except MessageProcessException as e:
             logger.error(
-                f"获取群 {group_id} 消息时发生未知错误: {e}",
+                f"处理群 {group_id} 消息失败: {e}",
                 command="总结",
                 group_id=group_id,
                 e=e,
             )
-            await UniMessage.text("获取消息失败，请稍后再试。").send(target)
+            await UniMessage.text(f"处理消息失败: {str(e)}").send(target)
+            return
+        except Exception as e:
+            logger.error(
+                f"获取或处理群 {group_id} 消息时发生未知错误: {e}",
+                command="总结",
+                group_id=group_id,
+                e=e,
+            )
+            await UniMessage.text("获取或处理消息失败，请稍后再试。").send(target)
             return
 
         try:
