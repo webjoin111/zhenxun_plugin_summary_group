@@ -1,20 +1,17 @@
-from typing import List, Dict, Optional, Any, Set, Tuple, Union
 from pathlib import Path
+
 from nonebot.adapters.onebot.v11 import Bot
-from nonebot_plugin_alconna.uniseg import UniMessage, Target, MsgTarget
+from nonebot_plugin_alconna.uniseg import MsgTarget, UniMessage
 
 from zhenxun.configs.config import Config
 from zhenxun.services.log import logger
-from zhenxun.utils.platform import PlatformUtils, UserData
-
 
 base_config = Config.get("summary_group")
 if base_config is None:
     logger.error("[utils/summary.py] 无法加载 'summary_group' 配置!")
     base_config = {}
 
-from ..model import detect_model, ModelException
-
+from ..model import ModelException, detect_model
 
 md_to_pic = None
 if base_config.get("summary_output_type") == "image":
@@ -26,8 +23,8 @@ if base_config.get("summary_output_type") == "image":
     except Exception as e:
         logger.warning(f"加载 htmlrender 失败，图片模式不可用: {e}")
 
-from .scheduler import SummaryException
 from .health import with_retry
+from .scheduler import SummaryException
 
 
 class MessageProcessException(SummaryException):
@@ -39,10 +36,10 @@ class ImageGenerationException(SummaryException):
 
 
 async def messages_summary(
-    messages: List[Dict[str, str]],
-    content: Optional[str] = None,
-    target_user_names: Optional[List[str]] = None,
-    style: Optional[str] = None,
+    messages: list[dict[str, str]],
+    content: str | None = None,
+    target_user_names: list[str] | None = None,
+    style: str | None = None,
 ) -> str:
     if not messages:
         logger.warning("没有足够的聊天记录可供总结", command="messages_summary")
@@ -96,7 +93,7 @@ async def messages_summary(
                 f"生成总结失败 (invoke_model): {e}", command="messages_summary", e=e
             )
 
-            raise ModelException(f"生成总结时发生内部错误: {str(e)}") from e
+            raise ModelException(f"生成总结时发生内部错误: {e!s}") from e
 
     try:
 
@@ -107,15 +104,6 @@ async def messages_summary(
             max_retries=max_retries if max_retries is not None else 3,
             retry_delay=retry_delay if retry_delay is not None else 2,
         )
-
-        beautify_enabled = base_config.get("SUMMARY_BEAUTIFY_USERNAME")
-        if beautify_enabled:
-            if "<span" not in summary_text and target_user_names:
-
-                pass
-        elif "<span" in summary_text:
-
-            pass
 
         return summary_text
     except ModelException as e:
@@ -129,7 +117,7 @@ async def messages_summary(
             command="messages_summary",
             e=e,
         )
-        raise ModelException(f"总结生成失败: {str(e)}")
+        raise ModelException(f"总结生成失败: {e!s}")
 
 
 async def generate_image(summary: str) -> bytes:
@@ -158,7 +146,7 @@ async def generate_image(summary: str) -> bytes:
     except Exception as e:
         if not isinstance(e, ImageGenerationException):
             logger.error(f"生成图片过程中发生意外错误: {e}", command="图片生成", e=e)
-            raise ImageGenerationException(f"图片生成失败: {str(e)}")
+            raise ImageGenerationException(f"图片生成失败: {e!s}")
         else:
             raise
 
@@ -169,7 +157,6 @@ async def send_summary(bot: Bot, target: MsgTarget, summary: str) -> bool:
         reply_msg = None
         output_type = base_config.get("summary_output_type")
         fallback_enabled = base_config.get("summary_fallback_enabled")
-        beautify_enabled = base_config.get("SUMMARY_BEAUTIFY_USERNAME")
 
         if output_type == "image":
             try:

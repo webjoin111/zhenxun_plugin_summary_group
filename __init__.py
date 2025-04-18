@@ -1,26 +1,28 @@
+from typing import Any
+
 from nonebot import get_driver, require
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, PrivateMessageEvent
-from nonebot.plugin import PluginMetadata
 from nonebot.permission import SUPERUSER
-from nonebot.internal.rule import Rule
-from typing import Union, List, Tuple, Any
+from nonebot.plugin import PluginMetadata
+from nonebot_plugin_alconna.uniseg import MsgTarget, UniMessage
+
 from zhenxun.configs.config import Config
-from zhenxun.configs.utils import PluginExtraData, RegisterConfig, PluginCdBlock
-from zhenxun.utils.rules import admin_check, ensure_group
-from zhenxun.utils.enum import PluginLimitType, LimitWatchType
+from zhenxun.configs.utils import PluginCdBlock, PluginExtraData, RegisterConfig
 from zhenxun.services.log import logger
+from zhenxun.utils.enum import LimitWatchType, PluginLimitType
+from zhenxun.utils.rules import admin_check, ensure_group
 from zhenxun.utils.utils import FreqLimiter
-from nonebot_plugin_alconna.uniseg import UniMessage, Target, MsgTarget
+
 from .utils.scheduler import set_scheduler
 
 require("nonebot_plugin_alconna")
-from arclet.alconna import Alconna, Args, CommandMeta, MultiVar, Option, Field
+from arclet.alconna import Alconna, Args, CommandMeta, Field, MultiVar, Option
 from nonebot_plugin_alconna import (
-    Match,
-    on_alconna,
-    CommandResult,
     At,
+    CommandResult,
+    Match,
     Text,
+    on_alconna,
 )
 
 require("nonebot_plugin_apscheduler")
@@ -36,7 +38,7 @@ try:
 
     cooldown_seconds = base_config.get("SUMMARY_COOL_DOWN")
     if not isinstance(cooldown_seconds, int) or cooldown_seconds < 0:
-        logger.warning(f"配置项 SUMMARY_COOL_DOWN 值无效，使用 60")
+        logger.warning("配置项 SUMMARY_COOL_DOWN 值无效，使用 60")
         cooldown_seconds = 60
 except TypeError:
     logger.warning("配置项 SUMMARY_COOL_DOWN 未找到，使用 60")
@@ -51,13 +53,13 @@ logger.info(f"群聊总结插件冷却限制器已初始化，冷却时间: {coo
 
 def validate_and_parse_msg_count(count_input: Any) -> int:
     logger.debug(
-        f"--- Validator validate_and_parse_msg_count called with input: {repr(count_input)} (type: {type(count_input)}) ---"
+        f"--- Validator validate_and_parse_msg_count called with input: {count_input!r} (type: {type(count_input)}) ---"
     )
     try:
         count = int(count_input)
     except (ValueError, TypeError):
         logger.warning(
-            f"Validation failed: Input '{repr(count_input)}' cannot be converted to integer."
+            f"Validation failed: Input '{count_input!r}' cannot be converted to integer."
         )
         raise ValueError("消息数量必须是一个有效的整数")
 
@@ -78,7 +80,7 @@ def validate_and_parse_msg_count(count_input: Any) -> int:
 
 
 def parse_and_validate_time(time_str: str) -> tuple[int, int]:
-    logger.debug(f"--- parse_and_validate_time called with input: {repr(time_str)} ---")
+    logger.debug(f"--- parse_and_validate_time called with input: {time_str!r} ---")
 
     try:
 
@@ -299,14 +301,16 @@ summary_group = on_alconna(
         ),
         Args[
             "parts?",
-            MultiVar(Union[At, Text]),
+            MultiVar(At | Text),
             Field(default=[], completion="可以@用户 或 输入要过滤的关键词"),
         ],
         meta=CommandMeta(
             description="生成群聊总结",
             usage=(
                 "总结 <消息数量> [-p|--prompt 风格] [@用户/内容过滤...]\n"
-                f"消息数量范围: {Config.get('summary_group').get('SUMMARY_MIN_LENGTH')} - {Config.get('summary_group').get('SUMMARY_MAX_LENGTH')}"
+                "消息数量范围: "
+                f"{Config.get('summary_group').get('SUMMARY_MIN_LENGTH')} - "
+                f"{Config.get('summary_group').get('SUMMARY_MAX_LENGTH')}"
             ),
             example=(
                 "总结 300\n"
@@ -432,25 +436,31 @@ summary_repair = on_alconna(
 )
 
 
-from .handlers.summary import handle_summary as summary_handler_impl
-from .handlers.scheduler import (
-    handle_summary_set as summary_set_handler_impl,
-    handle_summary_remove as summary_remove_handler_impl,
-    check_scheduler_status_handler as check_status_handler_impl,
-)
 from .handlers.health import (
     handle_health_check as health_check_handler_impl,
+)
+from .handlers.health import (
     handle_system_repair as system_repair_handler_impl,
 )
+from .handlers.scheduler import (
+    check_scheduler_status_handler as check_status_handler_impl,
+)
+from .handlers.scheduler import (
+    handle_summary_remove as summary_remove_handler_impl,
+)
+from .handlers.scheduler import (
+    handle_summary_set as summary_set_handler_impl,
+)
+from .handlers.summary import handle_summary as summary_handler_impl
 
 
 @summary_group.handle()
 async def _(
     bot: Bot,
-    event: Union[GroupMessageEvent, PrivateMessageEvent],
+    event: GroupMessageEvent | PrivateMessageEvent,
     message_count: int,
     style: Match[str],
-    parts: Match[List[Union[At, Text]]],
+    parts: Match[list[At | Text]],
     target: MsgTarget,
 ):
     user_id_str = event.get_user_id()
@@ -488,7 +498,7 @@ async def _(
             exc_info=True,
         )
         try:
-            await UniMessage.text(f"处理命令时出错: {str(e)}").send(target)
+            await UniMessage.text(f"处理命令时出错: {e!s}").send(target)
         except Exception:
             logger.error("发送错误消息失败", command="总结")
 
@@ -496,7 +506,7 @@ async def _(
 @summary_set.handle()
 async def _(
     bot: Bot,
-    event: Union[GroupMessageEvent, PrivateMessageEvent],
+    event: GroupMessageEvent | PrivateMessageEvent,
     result: CommandResult,
     target: MsgTarget,
 ):
@@ -504,7 +514,9 @@ async def _(
         arp = result.result
         if not arp:
             logger.error("在 summary_set handler 中 Arparma result 为 None")
-            await UniMessage.text("命令解析内部错误，请重试或联系管理员。").send(target)
+            await UniMessage.text(
+                "命令解析内部错误，请重试或联系管理员。"
+            ).send(target)
             return
 
         time_str_match = arp.query("time_str")
@@ -513,7 +525,7 @@ async def _(
         style_value = arp.query("p.style")
         if style_value is None:
             style_value = arp.query("prompt.style")
-        logger.debug(f"使用 arp.query 提取的 style_value: {repr(style_value)}")
+        logger.debug(f"使用 arp.query 提取的 style_value: {style_value!r}")
 
         if not time_str_match:
             await UniMessage.text("必须提供时间参数").send(target)
@@ -548,7 +560,7 @@ async def _(
             e=e,
         )
         try:
-            await UniMessage.text(f"处理命令时出错: {str(e)}").send(target)
+            await UniMessage.text(f"处理命令时出错: {e!s}").send(target)
         except Exception:
             logger.error("发送错误消息失败", command="定时总结")
 
@@ -556,7 +568,7 @@ async def _(
 @summary_remove.handle()
 async def _(
     bot: Bot,
-    event: Union[GroupMessageEvent, PrivateMessageEvent],
+    event: GroupMessageEvent | PrivateMessageEvent,
     result: CommandResult,
     target: MsgTarget,
 ):
@@ -565,21 +577,21 @@ async def _(
 
 @summary_check_status.handle()
 async def handle_check_status(
-    bot: Bot, event: Union[GroupMessageEvent, PrivateMessageEvent], target: MsgTarget
+    bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget
 ):
     await check_status_handler_impl(bot, event, target)
 
 
 @summary_health.handle()
 async def handle_check_health(
-    bot: Bot, event: Union[GroupMessageEvent, PrivateMessageEvent], target: MsgTarget
+    bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget
 ):
     await health_check_handler_impl(bot, event, target)
 
 
 @summary_repair.handle()
 async def handle_system_fix(
-    bot: Bot, event: Union[GroupMessageEvent, PrivateMessageEvent], target: MsgTarget
+    bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget
 ):
     await system_repair_handler_impl(bot, event, target)
 

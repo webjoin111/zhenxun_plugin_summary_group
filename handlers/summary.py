@@ -1,36 +1,36 @@
-from typing import Union, List
+import time
+
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, PrivateMessageEvent
-from nonebot_plugin_alconna.uniseg import UniMessage, Target, MsgTarget
-from nonebot_plugin_alconna import Match, At, Text
 from nonebot.permission import SUPERUSER
-from zhenxun.services.log import logger
-from zhenxun.configs.config import Config
-from zhenxun.models.statistics import Statistics
+from nonebot_plugin_alconna import At, Match, Text
+from nonebot_plugin_alconna.uniseg import MsgTarget, UniMessage
+
+from zhenxun.models.ban_console import BanConsole
 from zhenxun.models.bot_console import BotConsole
 from zhenxun.models.group_console import GroupConsole
-from zhenxun.models.ban_console import BanConsole
+from zhenxun.models.statistics import Statistics
+from zhenxun.services.log import logger
+
 from .. import summary_cd_limiter
 from ..utils.message import (
-    get_raw_group_msg_history,
-    process_message,
     MessageFetchException,
     MessageProcessException,
-    check_cooldown,
+    get_raw_group_msg_history,
+    process_message,
 )
 from ..utils.summary import (
+    ModelException,
     messages_summary,
     send_summary,
-    ModelException,
 )
-import time
 
 
 async def handle_summary(
     bot: Bot,
-    event: Union[GroupMessageEvent, PrivateMessageEvent],
+    event: GroupMessageEvent | PrivateMessageEvent,
     message_count: int,
     style: Match[str],
-    parts: Match[List[Union[At, Text]]],
+    parts: Match[list[At | Text]],
     target: MsgTarget,
 ):
     user_id_str = event.get_user_id()
@@ -39,7 +39,6 @@ async def handle_summary(
     plugin_name = "summary_group"
 
     try:
-
         if not await BotConsole.get_bot_status(bot_id):
             logger.info(
                 f"Bot {bot_id} is inactive, skipping command.",
@@ -68,9 +67,7 @@ async def handle_summary(
             return
 
         if group_id and await BanConsole.is_ban(None, group_id):
-            logger.info(
-                f"Group {group_id} is banned.", command="总结", group_id=group_id
-            )
+            logger.info(f"Group {group_id} is banned.", command="总结", group_id=group_id)
             return
 
         if await BanConsole.is_ban(user_id_str, group_id):
@@ -110,8 +107,6 @@ async def handle_summary(
     )
 
     try:
-        base_config = Config.get("summary_group")
-
         target_user_ids: set[str] = set()
         content_parts: list[str] = []
         target_user_names: list[str] = []
@@ -137,22 +132,20 @@ async def handle_summary(
             group_id=group_id,
         )
 
-        feedback = (
-            f"正在生成群聊总结{'（风格: ' + style_value + '）' if style_value else ''}"
-        )
+        feedback = f"正在生成群聊总结{'（风格: ' + style_value + '）' if style_value else ''}"
         feedback += f"{'（指定用户）' if target_user_ids else ''}，请稍候..."
         await UniMessage.text(feedback).send(target)
 
         is_superuser = await SUPERUSER(bot, event)
         if not is_superuser:
-
             logger.debug(f"即将为用户 {user_id_str} (非超级用户) 启动冷却...")
             summary_cd_limiter.start_cd(user_id_str)
 
             next_available_time = summary_cd_limiter.next_time.get(user_id_str, 0)
             current_time = time.time()
             logger.debug(
-                f"用户 {user_id_str} (非超级用户) 冷却已启动。下次可用时间戳: {next_available_time:.2f}, 当前时间戳: {current_time:.2f}"
+                f"用户 {user_id_str} (非超级用户) 冷却已启动。"
+                f"下次可用时间戳: {next_available_time:.2f}, 当前时间戳: {current_time:.2f}"
             )
         else:
             logger.debug(
@@ -162,7 +155,6 @@ async def handle_summary(
             )
 
         try:
-
             logger.debug(
                 f"开始获取原始消息: count={message_count}",
                 command="总结",
@@ -185,29 +177,21 @@ async def handle_summary(
 
             filtered_messages = raw_messages
             if target_user_ids:
-                filtered_messages = [
-                    msg
-                    for msg in raw_messages
-                    if str(msg.get("user_id")) in target_user_ids
-                ]
+                filtered_messages = [msg for msg in raw_messages if str(msg.get("user_id")) in target_user_ids]
                 logger.debug(
                     f"过滤后剩余 {len(filtered_messages)} 条消息 (来自用户: {target_user_ids})",
                     command="总结",
                     group_id=group_id,
                 )
                 if not filtered_messages:
-                    msg = f"未能获取到指定用户的有效聊天记录。"
-                    logger.warning(
-                        f"群 {group_id}: {msg}", command="总结", group_id=group_id
-                    )
+                    msg = "未能获取到指定用户的有效聊天记录。"
+                    logger.warning(f"群 {group_id}: {msg}", command="总结", group_id=group_id)
                     await UniMessage.text(msg).send(target)
                     return
 
             logger.debug("开始处理消息...", command="总结", group_id=group_id)
 
-            processed_messages, user_info_cache = await process_message(
-                filtered_messages, bot, group_id
-            )
+            processed_messages, user_info_cache = await process_message(filtered_messages, bot, group_id)
             if not processed_messages:
                 logger.warning(
                     f"处理消息后群 {group_id} 没有有效内容",
@@ -223,13 +207,8 @@ async def handle_summary(
             )
 
             if target_user_ids:
-                target_user_names = [
-                    user_info_cache.get(uid, f"用户{uid[-4:]}")
-                    for uid in target_user_ids
-                ]
-                logger.debug(
-                    f"将对用户 {target_user_names} 进行过滤总结", command="总结"
-                )
+                target_user_names = [user_info_cache.get(uid, f"用户{uid[-4:]}") for uid in target_user_ids]
+                logger.debug(f"将对用户 {target_user_names} 进行过滤总结", command="总结")
 
         except MessageFetchException as e:
             logger.error(
@@ -238,7 +217,7 @@ async def handle_summary(
                 group_id=group_id,
                 e=e,
             )
-            await UniMessage.text(f"获取消息历史失败: {str(e)}").send(target)
+            await UniMessage.text(f"获取消息历史失败: {e!s}").send(target)
             return
         except MessageProcessException as e:
             logger.error(
@@ -247,7 +226,7 @@ async def handle_summary(
                 group_id=group_id,
                 e=e,
             )
-            await UniMessage.text(f"处理消息失败: {str(e)}").send(target)
+            await UniMessage.text(f"处理消息失败: {e!s}").send(target)
             return
         except Exception as e:
             logger.error(
@@ -260,7 +239,6 @@ async def handle_summary(
             return
 
         try:
-
             logger.debug(
                 f"开始为群 {group_id} 生成总结，处理 {len(processed_messages)} 条消息",
                 command="总结",
@@ -284,7 +262,7 @@ async def handle_summary(
                 group_id=group_id,
                 e=e,
             )
-            await UniMessage.text(f"生成总结失败: {str(e)}").send(target)
+            await UniMessage.text(f"生成总结失败: {e!s}").send(target)
             return
         except Exception as e:
             logger.error(
@@ -320,16 +298,10 @@ async def handle_summary(
                     command="总结",
                 )
             except Exception as stat_e:
-                logger.error(
-                    f"记录插件调用统计失败: {stat_e}", command="总结", e=stat_e
-                )
-            logger.debug(
-                f"成功完成群 {group_id} 的总结命令", command="总结", group_id=group_id
-            )
+                logger.error(f"记录插件调用统计失败: {stat_e}", command="总结", e=stat_e)
+            logger.debug(f"成功完成群 {group_id} 的总结命令", command="总结", group_id=group_id)
         else:
-            logger.error(
-                f"向群 {group_id} 发送总结失败", command="总结", group_id=group_id
-            )
+            logger.error(f"向群 {group_id} 发送总结失败", command="总结", group_id=group_id)
 
     except Exception as e:
         logger.error(
@@ -340,7 +312,8 @@ async def handle_summary(
             exc_info=True,
         )
         try:
-            await UniMessage.text(f"处理命令时出错: {str(e)}").send(target)
+            await UniMessage.text(f"处理命令时出错: {e!s}").send(target)
+            await UniMessage.text(f"处理命令时出错: {e!s}").send(target)
         except Exception:
             logger.error(
                 "发送最终错误消息失败",

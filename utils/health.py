@@ -1,10 +1,11 @@
 # utils/health.py
 import asyncio
-from typing import Callable, Any
-from zhenxun.services.log import logger
-from nonebot import require
+from collections.abc import Callable
+from typing import Any
 
 from nonebot_plugin_apscheduler import scheduler
+
+from zhenxun.services.log import logger
 
 from ..store import Store
 
@@ -17,8 +18,7 @@ async def with_retry(func: Callable, max_retries: int = 3, retry_delay: int = 2)
             if attempt < max_retries - 1:
                 delay = retry_delay * (2**attempt)
                 logger.warning(
-                    f"操作失败 ({attempt+1}/{max_retries})，将在 {delay} 秒后重试: {e}",
-                    command="with_retry", e=e
+                    f"操作失败 ({attempt + 1}/{max_retries})，将在 {delay} 秒后重试: {e}", command="with_retry", e=e
                 )
                 await asyncio.sleep(delay)
             else:
@@ -28,7 +28,8 @@ async def with_retry(func: Callable, max_retries: int = 3, retry_delay: int = 2)
 
 async def check_system_health():
     import asyncio
-    from .scheduler import task_processor_started, summary_queue, process_summary_queue
+
+    from .scheduler import process_summary_queue, summary_queue, task_processor_started
 
     health_status = {
         "scheduler": {
@@ -50,12 +51,10 @@ async def check_system_health():
             scheduler.start()
             health_status["repairs_applied"].append("已启动调度器")
         except Exception as e:
-            health_status["errors"] = [f"启动调度器失败: {str(e)}"]
+            health_status["errors"] = [f"启动调度器失败: {e!s}"]
 
     all_tasks = asyncio.all_tasks()
-    processor_tasks = [
-        t for t in all_tasks if t.get_name() == "summary_queue_processor"
-    ]
+    processor_tasks = [t for t in all_tasks if t.get_name() == "summary_queue_processor"]
 
     health_status["task_queue"]["processor_count"] = len(processor_tasks)
 
@@ -67,34 +66,27 @@ async def check_system_health():
             queue_task.set_name("summary_queue_processor")
             health_status["repairs_applied"].append("已重启队列处理器")
         except Exception as e:
-            health_status["errors"] = health_status.get("errors", []) + [
-                f"重启队列处理器失败: {str(e)}"
-            ]
+            existing_errors = health_status.get("errors", [])
+            health_status["errors"] = [*existing_errors, f"重启队列处理器失败: {e!s}"]
     else:
-
         for task in processor_tasks:
             if task.done():
                 health_status["warnings"].append("队列处理器任务已完成")
 
                 if task.exception():
-                    health_status["warnings"].append(
-                        f"队列处理器异常: {task.exception()}"
-                    )
+                    health_status["warnings"].append(f"队列处理器异常: {task.exception()}")
 
                 try:
                     queue_task = asyncio.create_task(process_summary_queue())
                     queue_task.set_name("summary_queue_processor")
                     health_status["repairs_applied"].append("已重启队列处理器")
                 except Exception as e:
-                    health_status["errors"] = health_status.get("errors", []) + [
-                        f"重启队列处理器失败: {str(e)}"
-                    ]
+                    existing_errors = health_status.get("errors", [])
+                    health_status["errors"] = [*existing_errors, f"重启队列处理器失败: {e!s}"]
 
     store = Store()
     group_ids = store.get_all_groups()
-    scheduled_job_ids = [
-        job.id for job in scheduler.get_jobs() if job.id.startswith("summary_group_")
-    ]
+    scheduled_job_ids = [job.id for job in scheduler.get_jobs() if job.id.startswith("summary_group_")]
 
     missing_jobs = []
     for group_id in group_ids:
@@ -123,9 +115,7 @@ async def check_system_health():
                 pass
 
         if removed_count > 0:
-            health_status["repairs_applied"].append(
-                f"已移除 {removed_count} 个孤立的调度任务"
-            )
+            health_status["repairs_applied"].append(f"已移除 {removed_count} 个孤立的调度任务")
 
     health_status["healthy"] = (
         not health_status.get("errors")

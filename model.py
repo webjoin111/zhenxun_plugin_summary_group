@@ -1,16 +1,14 @@
 from abc import ABC, abstractmethod
-import asyncio
-from typing import List, Union, Dict, Any, Optional, Tuple
-import random
-import httpx
 import json
-import re
+import random
+from typing import Any, ClassVar
 
-from zhenxun.services.log import logger
+import httpx
+
 from zhenxun.configs.config import Config
+from zhenxun.services.log import logger
 from zhenxun.utils.http_utils import AsyncHttpx
 from zhenxun.utils.user_agent import get_user_agent
-
 
 base_config = Config.get("summary_group")
 if base_config is None:
@@ -23,13 +21,13 @@ class ModelException(Exception):
 
 class Model(ABC):
     @abstractmethod
-    async def summary_history(self, messages: List[Dict[str, str]], prompt: str) -> str:
+    async def summary_history(self, messages: list[dict[str, str]], prompt: str) -> str:
         pass
 
 
 class LLMModel(Model):
 
-    MODEL_PREFIX_MAP = {
+    MODEL_PREFIX_MAP: ClassVar[dict[str, str]] = {
         "gemini": "gemini",
         "palm": "gemini",
         "gpt": "openai",
@@ -48,7 +46,7 @@ class LLMModel(Model):
         "glm": "zhipu",
     }
 
-    API_URL_FORMAT = {
+    API_URL_FORMAT: ClassVar[dict[str, str]] = {
         "gemini": "{base}/v1beta/models/{model}:generateContent?key={key}",
         "gemini_openai": "{base}/v1beta/openai/chat/completions",
         "openai": "{base}/chat/completions",
@@ -64,26 +62,26 @@ class LLMModel(Model):
 
     def __init__(
         self,
-        api_keys: Union[List[str], str, None] = None,
+        api_keys: list[str] | str | None = None,
         api_base: str = "https://generativelanguage.googleapis.com",
         summary_model: str = "gemini-1.5-flash",
-        api_type: Optional[str] = None,
+        api_type: str | None = None,
         openai_compat: bool = False,
-        proxy: Optional[str] = None,
+        proxy: str | None = None,
         timeout: int = 120,
         max_retries: int = 3,
         retry_delay: int = 2,
     ):
 
-        logger.debug(f"[LLMModel.__init__] 正在初始化LLMModel...")
+        logger.debug("[LLMModel.__init__] 正在初始化LLMModel...")
         logger.debug(
-            f"[LLMModel.__init__] 收到的api_keys参数: {repr(api_keys)} (类型: {type(api_keys)})"
+            f"[LLMModel.__init__] 收到的api_keys参数: {api_keys!r} (类型: {type(api_keys)})"
         )
 
         raw_keys = api_keys
         processed_keys = []
 
-        logger.debug(f"[LLMModel.__init__] 开始处理raw_keys: {repr(raw_keys)}")
+        logger.debug(f"[LLMModel.__init__] 开始处理raw_keys: {raw_keys!r}")
 
         if isinstance(raw_keys, str):
 
@@ -145,7 +143,8 @@ class LLMModel(Model):
         self.api_keys = processed_keys
 
         logger.debug(
-            f"[LLMModel.__init__] 最终的self.api_keys赋值: {repr(self.api_keys)} (类型: {type(self.api_keys)}, 数量: {len(self.api_keys)})"
+            f"[LLMModel.__init__] 最终的self.api_keys赋值: {self.api_keys!r} "
+            f"(类型: {type(self.api_keys)}, 数量: {len(self.api_keys)})"
         )
 
         self.api_base = api_base
@@ -175,7 +174,7 @@ class LLMModel(Model):
                 "[LLMModel.__init__] 初始化完成但没有有效的API密钥", command="LLMModel"
             )
 
-    def _determine_api_type(self, explicit_type: Optional[str], model_name: str) -> str:
+    def _determine_api_type(self, explicit_type: str | None, model_name: str) -> str:
         if explicit_type:
             logger.debug(
                 f"[LLMModel._determine_api_type] 使用显式指定的API类型: {explicit_type}",
@@ -199,11 +198,11 @@ class LLMModel(Model):
         )
         return default_type
 
-    async def summary_history(self, messages: List[Dict[str, str]], prompt: str) -> str:
+    async def summary_history(self, messages: list[dict[str, str]], prompt: str) -> str:
 
-        logger.debug(f"[LLMModel.summary_history] 方法被调用")
+        logger.debug("[LLMModel.summary_history] 方法被调用")
         logger.debug(
-            f"[LLMModel.summary_history] 检查self.api_keys: {repr(self.api_keys)} (数量: {len(self.api_keys)})"
+            f"[LLMModel.summary_history] 检查self.api_keys: {self.api_keys!r} (数量: {len(self.api_keys)})"
         )
 
         if not self.api_keys:
@@ -221,7 +220,7 @@ class LLMModel(Model):
         return await self._request_summary(messages, prompt)
 
     async def _request_summary(
-        self, messages: List[Dict[str, str]], prompt: str
+        self, messages: list[dict[str, str]], prompt: str
     ) -> str:
         if not self.api_keys:
             logger.error("[LLMModel._request_summary] No API keys available.", command="LLMModel")
@@ -265,7 +264,8 @@ class LLMModel(Model):
         except httpx.HTTPStatusError as e:
             error_text = e.response.text[:200]
             logger.error(
-                f"API request failed for key {api_key[:5]}... with status {e.response.status_code}: {error_text}",
+                f"API request failed for key {api_key[:5]}... "
+                f"with status {e.response.status_code}: {error_text}",
                 command="LLMModel", e=e
             )
             raise ModelException(f"API 请求失败 (状态码 {e.response.status_code}): {error_text}") from e
@@ -296,8 +296,8 @@ class LLMModel(Model):
             )
 
     def _prepare_request_params(
-        self, api_key: str, messages: List[Dict[str, str]], prompt: str
-    ) -> Tuple[str, Dict[str, str], Dict[str, Any]]:
+        self, api_key: str, messages: list[dict[str, str]], prompt: str
+    ) -> tuple[str, dict[str, str], dict[str, Any]]:
         url = self._format_url(self.api_type, api_key)
         headers = {}
         data = {}
@@ -388,7 +388,7 @@ class LLMModel(Model):
 
         return url, final_headers, data
 
-    def _extract_response_text(self, result: Dict[str, Any]) -> str:
+    def _extract_response_text(self, result: dict[str, Any]) -> str:
         if self.api_type == "gemini":
             try:
                 return result["candidates"][0]["content"]["parts"][0]["text"]
@@ -419,10 +419,10 @@ class LLMModel(Model):
 
 def detect_model() -> Model:
     try:
-        
+
         logger.debug("[detect_model] Starting model detection using preloaded base_config...")
 
-        model_type = base_config.get("model_type") or "llm" 
+        model_type = base_config.get("model_type") or "llm"
 
         if model_type.lower() == "llm":
             api_keys = base_config.get("SUMMARY_API_KEYS")
@@ -435,7 +435,7 @@ def detect_model() -> Model:
             max_retries = base_config.get("MAX_RETRIES")
             retry_delay = base_config.get("RETRY_DELAY")
 
-            
+
             return LLMModel(
                 api_keys=api_keys,
                 api_base=api_base or "https://generativelanguage.googleapis.com",
@@ -449,7 +449,7 @@ def detect_model() -> Model:
             )
 
         logger.warning(f"Unsupported model_type '{model_type}'. Falling back to default LLMModel.")
-        return LLMModel() 
+        return LLMModel()
     except Exception as e:
         logger.error(f"Model detection failed: {e}. Falling back to default LLMModel.")
         return LLMModel()
