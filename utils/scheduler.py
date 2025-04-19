@@ -87,8 +87,6 @@ async def update_single_group_schedule(group_id: int, data: dict) -> tuple:
                 command="scheduler",
                 group_id=group_id,
             )
-
-            scheduler.remove_job(job_id)
         else:
             logger.debug(
                 f"创建群 {group_id} 的定时总结任务: {hour:02d}:{minute:02d}:{second:02d}, 风格: {style or '默认'}",
@@ -109,20 +107,44 @@ async def update_single_group_schedule(group_id: int, data: dict) -> tuple:
                 timezone="Asia/Shanghai",
             )
         except Exception as e:
-            logger.error(f"添加定时任务时出错: {e}", command="scheduler", group_id=group_id, e=e)
+            logger.error(f"添加/更新定时任务时出错: {e}", command="scheduler", group_id=group_id, e=e)
             return False, None
 
         updated_job = scheduler.get_job(job_id)
         if updated_job:
+            try:
+                store = Store()
+                save_data = {
+                    "hour": hour,
+                    "minute": minute,
+                    "least_message_count": least_message_count,
+                    "style": style,
+                }
+                if not store.set(group_id, save_data):
+                    logger.error(
+                        f"群 {group_id} 的定时任务设置保存失败", command="scheduler", group_id=group_id
+                    )
+                else:
+                    logger.debug(
+                        f"群 {group_id} 的定时任务设置已保存", command="scheduler", group_id=group_id
+                    )
+            except Exception as store_e:
+                logger.error(
+                    f"保存群 {group_id} 设置时出错: {store_e!s}",
+                    command="scheduler",
+                    group_id=group_id,
+                    e=store_e,
+                )
+
             logger.debug(
-                f"群 {group_id} 的定时任务已更新，下次执行时间: {updated_job.next_run_time}",
+                f"群 {group_id} 的定时任务已更新/创建，下次执行时间: {updated_job.next_run_time}",
                 command="scheduler",
                 group_id=group_id,
             )
             return True, updated_job
         else:
             logger.error(
-                f"群 {group_id} 的定时任务更新失败",
+                f"群 {group_id} 的定时任务更新/创建后未能找到",
                 command="scheduler",
                 group_id=group_id,
             )
@@ -224,7 +246,9 @@ async def process_summary_queue() -> None:
                 )
 
             try:
-                group_id, least_message_count, style, metadata = await asyncio.wait_for(summary_queue.get(), timeout=60)
+                group_id, least_message_count, style, metadata = await asyncio.wait_for(
+                    summary_queue.get(), timeout=60
+                )
 
                 task_start_time = datetime.now()
                 task_id = f"summary_task_{group_id}_{task_start_time.timestamp()}"
@@ -304,7 +328,9 @@ async def process_summary_queue() -> None:
                             group_id=group_id,
                         )
                         try:
-                            response = await bot.get_group_msg_history(group_id=group_id, count=least_message_count)
+                            response = await bot.get_group_msg_history(
+                                group_id=group_id, count=least_message_count
+                            )
                             messages = response.get("messages", [])
                             message_count = len(messages)
                             logger.debug(
@@ -344,7 +370,6 @@ async def process_summary_queue() -> None:
                         try:
                             processed_data_tuple = await process_message(messages, bot, group_id)
                             processed_messages = processed_data_tuple[0]
-                            # user_cache = processed_data_tuple[1] # F841 Unused
 
                             if not processed_messages:
                                 logger.warning(
@@ -518,7 +543,6 @@ async def process_summary_queue() -> None:
                         await asyncio.sleep(1)
 
             except asyncio.TimeoutError:
-                # logger.debug("队列处理器等待超时，继续监听", command="队列处理器")
                 pass
             except Exception as e:
                 logger.error(f"队列处理器主循环出错: {e!s}", command="队列处理器", e=e)
@@ -536,7 +560,6 @@ def set_scheduler() -> None:
     if not task_processor_started:
         logger.info("初始化调度器: 启动 summary_group 队列处理器...", command="scheduler")
         try:
-            # Store the task to prevent RUF006
             _task = asyncio.create_task(process_summary_queue())
             _task.set_name("summary_queue_processor")
             task_processor_started = True
@@ -553,7 +576,6 @@ def set_scheduler() -> None:
         except Exception as e:
             logger.error(f"启动 APScheduler 失败: {e}", command="scheduler", e=e)
 
-    # Perform an initial health check after startup
     _health_check_task = asyncio.create_task(check_system_health())
     _background_tasks.add(_health_check_task)
     _health_check_task.add_done_callback(_background_tasks.discard)
@@ -656,7 +678,6 @@ async def stop_tasks() -> None:
     global task_processor_started
     logger.info("正在停止所有后台任务...", command="shutdown")
 
-    # 停止队列处理器
     processor_tasks = [task for task in asyncio.all_tasks() if task.get_name() == "summary_queue_processor"]
     for task in processor_tasks:
         if not task.done():
@@ -670,10 +691,9 @@ async def stop_tasks() -> None:
     task_processor_started = False
     logger.debug("所有队列处理器任务已处理完毕", command="shutdown")
 
-    # 停止其他通过 asyncio.create_task 启动的任务
     if _background_tasks:
         logger.debug(f"开始取消 {len(_background_tasks)} 个其他后台任务...")
-        for task in list(_background_tasks):  # 使用 list 副本以允许在迭代中修改集合
+        for task in list(_background_tasks):
             if not task.done():
                 task.cancel()
                 try:

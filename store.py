@@ -1,11 +1,12 @@
-from typing import TypedDict
-import json
-from pathlib import Path
 import asyncio
 import copy
+import json
+from pathlib import Path
 import time
+from typing import TypedDict
 
 from nonebot import logger
+
 from zhenxun.configs.path_config import DATA_PATH
 
 
@@ -43,9 +44,7 @@ class Store:
                 f"加载存储数据失败: JSON 解析错误于 {self.file_path} - {e}",
             )
             try:
-                corrupted_path = self.file_path.with_suffix(
-                    f".json.corrupted_{int(time.time())}"
-                )
+                corrupted_path = self.file_path.with_suffix(f".json.corrupted_{int(time.time())}")
                 self.file_path.rename(corrupted_path)
                 logger.warning(f"损坏的配置文件已备份到: {corrupted_path}")
             except OSError as backup_e:
@@ -64,9 +63,7 @@ class Store:
                 json.dump(self.data, f, ensure_ascii=False, indent=2)
             return True
         except TypeError as e:
-            logger.error(
-                f"保存存储数据失败: 数据无法序列化为 JSON - {e}"
-            )
+            logger.error(f"保存存储数据失败: 数据无法序列化为 JSON - {e}")
             return False
         except Exception as e:
             logger.error(f"保存存储数据失败: {e}")
@@ -79,19 +76,44 @@ class Store:
                 return False
 
             required_fields = {"hour": int, "minute": int, "least_message_count": int}
-            for field, field_type in required_fields.items():
-                if field not in data or not isinstance(data[field], field_type):
-                    logger.warning(
-                        f"为群 {group_id} 设置的数据缺少字段 '{field}' 或类型错误 (应为 {field_type.__name__})"
-                    )
+            optional_fields = {"style": (str, type(None))}
 
-            validated_data = {k: data.get(k) for k in required_fields if k in data}
+            validated_data = {}
+
+            for field, field_type in required_fields.items():
+                if field not in data:
+                    logger.warning(f"为群 {group_id} 设置的数据缺少必填字段 '{field}'")
+                elif not isinstance(data[field], field_type):
+                    logger.warning(
+                        f"为群 {group_id} 设置的数据字段 '{field}' 类型错误 (应为 {field_type.__name__})"
+                    )
+                else:
+                    validated_data[field] = data[field]
+
+            for field, allowed_types in optional_fields.items():
+                if field in data:
+                    if isinstance(data[field], allowed_types):
+                        validated_data[field] = data[field]
+                    else:
+                        expected_type_names = ", ".join(
+                            [t.__name__ for t in allowed_types if t is not type(None)]
+                        )
+                        if type(None) in allowed_types:
+                            expected_type_names += " 或 None"
+                        logger.warning(
+                            f"为群 {group_id} 设置的数据字段 '{field}' 类型错误 (应为 {expected_type_names})"
+                        )
+
+            if not all(key in validated_data for key in required_fields):
+                logger.error(f"群 {group_id} 缺少必要的配置字段，无法保存")
+                return False
 
             from datetime import datetime
 
             now_iso = datetime.now().isoformat()
-            if str(group_id) not in self.data and "created_at" not in validated_data:
-                validated_data["created_at"] = now_iso
+            if str(group_id) not in self.data:
+                if "created_at" not in validated_data:
+                    validated_data["created_at"] = now_iso
             validated_data["updated_at"] = now_iso
 
             self.data[str(group_id)] = validated_data
