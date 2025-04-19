@@ -722,6 +722,7 @@ async def check_scheduler_status_handler(
                     "least_message_count",
                     Config.get("summary_group").get("SUMMARY_MAX_LENGTH"),
                 )
+                style = data.get("style")
 
                 job_id = f"summary_group_{group_id_int}"
                 job = all_jobs.get(job_id)
@@ -743,9 +744,10 @@ async def check_scheduler_status_handler(
                             "%Y-%m-%d %H:%M:%S (原始时区)"
                         )
 
+                style_info = f"，风格：{style}" if style else ""
                 status_msg += (
                     f"群 {group_id_int}：每天 {hour:02d}:{minute:02d}，"
-                    f"最少 {least_count} 条消息，下次执行：{next_run}\n"
+                    f"最少 {least_count} 条消息{style_info}，下次执行：{next_run}\n"
                 )
 
         await UniMessage.text(status_msg).send(target)
