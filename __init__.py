@@ -10,7 +10,7 @@ from zhenxun.configs.config import Config
 from zhenxun.configs.utils import PluginCdBlock, PluginExtraData, RegisterConfig
 from zhenxun.services.log import logger
 from zhenxun.utils.enum import LimitWatchType, PluginLimitType
-from zhenxun.utils.rules import admin_check, ensure_group
+from zhenxun.utils.rules import admin_check, ensure_group  # noqa: F401
 from zhenxun.utils.utils import FreqLimiter
 
 from .utils.scheduler import set_scheduler
@@ -35,7 +35,6 @@ if base_config is None:
 
 
 try:
-
     cooldown_seconds = base_config.get("SUMMARY_COOL_DOWN")
     if not isinstance(cooldown_seconds, int) or cooldown_seconds < 0:
         logger.warning("配置项 SUMMARY_COOL_DOWN 值无效，使用 60")
@@ -58,9 +57,7 @@ def validate_and_parse_msg_count(count_input: Any) -> int:
     try:
         count = int(count_input)
     except (ValueError, TypeError):
-        logger.warning(
-            f"Validation failed: Input '{count_input!r}' cannot be converted to integer."
-        )
+        logger.warning(f"Validation failed: Input '{count_input!r}' cannot be converted to integer.")
         raise ValueError("消息数量必须是一个有效的整数")
 
     min_len = base_config.get("SUMMARY_MIN_LENGTH")
@@ -70,9 +67,7 @@ def validate_and_parse_msg_count(count_input: Any) -> int:
         raise ValueError("配置缺失: MIN/MAX_LENGTH")
 
     if not (min_len <= count <= max_len):
-        logger.warning(
-            f"Validation failed: {count} not in range [{min_len}, {max_len}]"
-        )
+        logger.warning(f"Validation failed: {count} not in range [{min_len}, {max_len}]")
         raise ValueError(f"总结消息数量应在 {min_len} 到 {max_len} 之间")
 
     logger.debug(f"Validation successful for count: {count}")
@@ -83,22 +78,17 @@ def parse_and_validate_time(time_str: str) -> tuple[int, int]:
     logger.debug(f"--- parse_and_validate_time called with input: {time_str!r} ---")
 
     try:
-
         from .handlers.scheduler import parse_time
 
         result = parse_time(time_str)
-        logger.debug(
-            f"parse_and_validate_time successful, result: {result[0]:02d}:{result[1]:02d}"
-        )
+        logger.debug(f"parse_and_validate_time successful, result: {result[0]:02d}:{result[1]:02d}")
         return result
 
     except ValueError as e:
-
         logger.error(f"parse_and_validate_time failed: {e}", e=e)
         raise
 
     except Exception as e:
-
         logger.error(f"parse_and_validate_time unexpected error: {e}", e=e)
         raise ValueError(f"解析时间时发生意外错误: {e}")
 
@@ -299,6 +289,10 @@ summary_group = on_alconna(
             "-p|--prompt",
             Args["style", str, Field(completion="指定总结风格，如：锐评, 正式")],
         ),
+        Option(
+            "-g",
+            Args["target_group_id", int, Field(completion="指定群号 (需要超级用户权限)")],
+        ),
         Args[
             "parts?",
             MultiVar(At | Text),
@@ -307,21 +301,23 @@ summary_group = on_alconna(
         meta=CommandMeta(
             description="生成群聊总结",
             usage=(
-                "总结 <消息数量> [-p|--prompt 风格] [@用户/内容过滤...]\n"
+                "总结 <消息数量> [-p|--prompt 风格] [-g 群号] [@用户/内容过滤...]\n"
                 "消息数量范围: "
                 f"{Config.get('summary_group').get('SUMMARY_MIN_LENGTH')} - "
-                f"{Config.get('summary_group').get('SUMMARY_MAX_LENGTH')}"
+                f"{Config.get('summary_group').get('SUMMARY_MAX_LENGTH')}\n"
+                "说明: -g 仅限超级用户"
             ),
             example=(
                 "总结 300\n"
                 "总结 500 -p 锐评\n"
                 "总结 200 @张三 关于项目\n"
-                "总结 100 -p 正式 @李四"
+                "总结 100 -p 正式 @李四\n"
+                "总结 100 -g 12345678 (超级用户)\n"
+                "总结 200 -g 87654321 关于项目 (超级用户)"
             ),
             compact=False,
         ),
     ),
-    rule=ensure_group,
     priority=5,
     block=True,
 )
@@ -344,9 +340,7 @@ summary_set = on_alconna(
         ),
         Option(
             "-g",
-            Args[
-                "target_group_id", int, Field(completion="指定群号 (需要超级用户权限)")
-            ],
+            Args["target_group_id", int, Field(completion="指定群号 (需要超级用户权限)")],
         ),
         Option("-all", help_text="对所有群生效 (需要超级用户权限)"),
         meta=CommandMeta(
@@ -376,9 +370,7 @@ summary_remove = on_alconna(
         "定时总结取消",
         Option(
             "-g",
-            Args[
-                "target_group_id", int, Field(completion="指定群号 (需要超级用户权限)")
-            ],
+            Args["target_group_id", int, Field(completion="指定群号 (需要超级用户权限)")],
         ),
         Option("-all", help_text="取消所有群的定时总结 (需要超级用户权限)"),
         meta=CommandMeta(
@@ -458,6 +450,7 @@ from .handlers.summary import handle_summary as summary_handler_impl
 async def _(
     bot: Bot,
     event: GroupMessageEvent | PrivateMessageEvent,
+    result: CommandResult,
     message_count: int,
     style: Match[str],
     parts: Match[list[At | Text]],
@@ -468,34 +461,39 @@ async def _(
 
     is_superuser = await SUPERUSER(bot, event)
 
+    arp = result.result
+    target_group_id_match = arp.query("g.target_group_id") if arp else None
+    target_group_id_from_option = None
+    if target_group_id_match:
+        if not is_superuser:
+            await UniMessage.text("需要超级用户权限才能使用 -g 参数指定群聊。").send(target)
+            logger.warning(f"用户 {user_id_str} (非超级用户) 尝试使用 -g 参数")
+            return
+        target_group_id_from_option = int(target_group_id_match)
+        logger.debug(f"超级用户 {user_id_str} 使用 -g 指定群聊: {target_group_id_from_option}")
+
     if not is_superuser:
         is_ready = summary_cd_limiter.check(user_id_str)
         logger.debug(f"冷却检查结果 (非超级用户 {user_id_str}, is_ready): {is_ready}")
 
         if not is_ready:
             left = summary_cd_limiter.left_time(user_id_str)
-            logger.info(
-                f"用户 {user_id_str} 触发总结命令，但在冷却中 ({left:.1f}s 剩余)"
-            )
-            await UniMessage.text(f"总结功能冷却中，请等待 {left:.1f} 秒后再试~").send(
-                target
-            )
+            logger.info(f"用户 {user_id_str} 触发总结命令，但在冷却中 ({left:.1f}s 剩余)")
+            await UniMessage.text(f"总结功能冷却中，请等待 {left:.1f} 秒后再试~").send(target)
             return
         else:
             logger.debug(f"用户 {user_id_str} 不在冷却中，继续执行。")
     else:
-
         logger.debug(f"用户 {user_id_str} 是超级用户，跳过冷却检查。")
 
     try:
-        await summary_handler_impl(bot, event, message_count, style, parts, target)
+        await summary_handler_impl(bot, event, result, message_count, style, parts, target)
     except Exception as e:
         logger.error(
             f"处理总结命令时发生异常: {e}",
             command="总结",
             session=event.get_user_id(),
             group_id=getattr(event, "group_id", None),
-            exc_info=True,
         )
         try:
             await UniMessage.text(f"处理命令时出错: {e!s}").send(target)
@@ -514,9 +512,7 @@ async def _(
         arp = result.result
         if not arp:
             logger.error("在 summary_set handler 中 Arparma result 为 None")
-            await UniMessage.text(
-                "命令解析内部错误，请重试或联系管理员。"
-            ).send(target)
+            await UniMessage.text("命令解析内部错误，请重试或联系管理员。").send(target)
             return
 
         time_str_match = arp.query("time_str")
@@ -535,9 +531,7 @@ async def _(
             time_tuple = parse_and_validate_time(time_str_match)
 
             default_count = Config.get("summary_group").get("SUMMARY_MAX_LENGTH")
-            count_to_validate = (
-                least_count_match if least_count_match is not None else default_count
-            )
+            count_to_validate = least_count_match if least_count_match is not None else default_count
             least_count = validate_and_parse_msg_count(count_to_validate)
 
         except ValueError as e:
@@ -548,9 +542,7 @@ async def _(
             await UniMessage.text(f"解析时间或数量时出错: {e}").send(target)
             return
 
-        await summary_set_handler_impl(
-            bot, event, result, time_tuple, least_count, style_value, target
-        )
+        await summary_set_handler_impl(bot, event, result, time_tuple, least_count, style_value, target)
     except Exception as e:
         logger.error(
             f"处理定时总结设置命令时发生异常: {e}",
@@ -576,23 +568,17 @@ async def _(
 
 
 @summary_check_status.handle()
-async def handle_check_status(
-    bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget
-):
+async def handle_check_status(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget):
     await check_status_handler_impl(bot, event, target)
 
 
 @summary_health.handle()
-async def handle_check_health(
-    bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget
-):
+async def handle_check_health(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget):
     await health_check_handler_impl(bot, event, target)
 
 
 @summary_repair.handle()
-async def handle_system_fix(
-    bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget
-):
+async def handle_system_fix(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget):
     await system_repair_handler_impl(bot, event, target)
 
 

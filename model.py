@@ -276,7 +276,7 @@ class LLMModel(Model):
             logger.error(f"Error processing API response for key {api_key[:5]}...: {e}", command="LLMModel", e=e)
             raise ModelException(f"处理 API 响应失败: {e}") from e
         except Exception as e:
-            logger.error(f"Unexpected error during API request for key {api_key[:5]}...: {e}", command="LLMModel", exc_info=True)
+            logger.error(f"Unexpected error during API request for key {api_key[:5]}...: {e}", command="LLMModel")
             raise ModelException(f"发生意外错误: {e}") from e
 
     def _format_url(self, api_type: str, api_key: str) -> str:
