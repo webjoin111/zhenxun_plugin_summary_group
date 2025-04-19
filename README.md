@@ -18,6 +18,14 @@
     - [普通用户命令](#普通用户命令)
     - [超级用户命令](#超级用户命令)
   - [配置说明](#配置说明)
+    - [模型配置](#模型配置)
+      - [配置示例](#配置示例)
+    - [配置说明](#配置说明-1)
+      - [Provider 配置](#provider-配置)
+      - [Model 配置](#model-配置)
+    - [模型切换](#模型切换)
+    - [查看可用模型](#查看可用模型)
+    - [支持的 API 类型](#支持的-api-类型)
   - [功能演示](#功能演示)
     - [基础总结功能](#基础总结功能)
     - [定向总结功能](#定向总结功能)
@@ -28,6 +36,10 @@
   - [技术支持](#技术支持)
   - [致谢](#致谢)
   - [许可证](#许可证)
+  - [版本更新](#版本更新)
+    - [v0.5](#v05)
+    - [v0.4](#v04)
+    - [v0.3](#v03)
 
 ## 关于本项目
 
@@ -75,7 +87,20 @@
 
 ### 超级用户命令
 
-1. 设置定时总结：
+1. 模型管理命令：
+```
+总结模型列表
+总结切换模型 <ProviderName/ModelName>
+```
+
+参数说明：
+- `ProviderName/ModelName`：要切换到的模型，格式为“提供商名称/模型名称”
+
+示例：
+- `总结切换模型 DeepSeek/deepseek-chat`
+- `总结切换模型 Gemini/gemini-2.0-flash`
+
+2. 设置定时总结：
 ```
 定时总结 [HH:MM或HHMM] [最少消息数量] [-p 风格] [-g 群号] [-all]
 ```
@@ -91,17 +116,17 @@
 - `定时总结 22:00 100 -g 123456`
 - `定时总结 08:30 200 -p 简洁`
 
-2. 取消定时总结：
+3. 取消定时总结：
 ```
 定时总结取消 [-g 群号] [-all]
 ```
 
-3. 查看调度状态：
+4. 查看调度状态：
 ```
 总结调度状态 [-d]
 ```
 
-4. 系统维护命令：
+5. 系统维护命令：
 ```
 总结健康检查
 总结系统修复
@@ -109,32 +134,152 @@
 
 ## 配置说明
 
-在 Zhenxun Bot 的配置文件中添加以下配置项：
+### 模型配置
+
+从 v0.5 版本开始，插件使用新的 `SUMMARY_PROVIDERS` 配置结构，支持按提供商分组管理多个 AI 模型。
+
+#### 配置示例
 
 ```yaml
-summary_group:
-  SUMMARY_API_KEYS:
-  - AIzaSyARl-rHUKVXXXXXXXXXXXXXXXXXXXXXXXX
-  - AIzaSyABgrFnCBTXXXXXXXXXXXXXXXXXXXXXXXX
-  - AIzaSyD9gdvnBzj-XXXXXXXXXXXXXXXXXXXXXXX
-  SUMMARY_API_BASE: https://generativelanguage.googleapis.com
-  SUMMARY_MODEL: gemini-2.0-flash-exp
-  SUMMARY_API_TYPE:
-  SUMMARY_OPENAI_COMPAT: false
+SUMMARY_PROVIDERS: # 模型提供商配置列表
+  - name: DeepSeek   # Provider 名称
+    api_key: sk-******************************   # Provider 的 API Key (单个)
+    api_base: https://api.deepseek.com   # Provider 的 API Base URL
+    # api_type: deepseek # 可选，通常会自动推断
+    # temperature: 0.5 # 可选：Provider 级别的默认温度
+    # max_tokens: 8192 # 可选：Provider 级别的默认最大 tokens
+    models:   # 该 Provider 下的模型列表
+    - model_name: deepseek-chat     # 具体的模型名称
+      max_tokens: 4096     # 可选：覆盖 Provider 的默认值
+      temperature: 0.7     # 可选：覆盖 Provider 的默认值
+    - model_name: deepseek-reasoner
+      # 此模型将使用 Provider 级别的默认 temperature 和 max_tokens (如果设置了的话)
+      # 或者使用 LLMModel 内部的默认值
 
-  # 网络配置
-  proxy: null  # 代理地址，如 http://127.0.0.1:7890
-  time_out: 120  # API请求超时时间（秒）
-  max_retries: 3  # 最大重试次数
-  retry_delay: 2  # 重试延迟时间（秒）
+  - name: GLM   # Provider 名称 (智谱 AI)
+    api_key: b160c***************************   # Provider 的 API Key
+    api_base: https://open.bigmodel.cn/api/paas   # Provider 的 API Base URL
+    api_type: zhipu   # 建议显式指定智谱的类型
+    models:
+    - model_name: glm-4-flash     # 新版本模型名可能不需要日期后缀
+      max_tokens: 4096
+      temperature: 0.7
 
-  # 功能配置
-  summary_max_length: 1000  # 单次总结最大消息数量
-  summary_min_length: 50  # 触发总结最少消息数量
-  summary_cool_down: 60  # 用户触发冷却时间（秒）
-  summary_output_type: image  # 总结输出类型 (image 或 text)
-  summary_fallback_enabled: false  # 当图片生成失败时是否自动回退到文本模式
+  - name: Gemini   # Provider 名称
+    api_key:   # Provider 的 API Key (列表)
+    - AIzaSyB***********************
+    - AIzaSyA***********************
+    - AIzaSyD***********************
+    api_base: https://generativelanguage.googleapis.com   # Provider 的 API Base URL
+    # api_type: gemini # 可选
+    temperature: 0.8   # Provider 级别的默认温度
+    # max_tokens: 8192 # Provider 级别的默认最大 tokens (Gemini 通常按输入输出分别限制，这里可设输出上限)
+    models:
+    - model_name: gemini-2.0-flash     # 建议使用 latest 标签
+    - model_name: gemini-2.5-flash-preview-04-17     # 示例：添加另一个 Gemini 模型
+      # 也将继承 Provider 的 temperature: 0.8
+
+# 默认模型设置 (格式: ProviderName/ModelName)
+SUMMARY_DEFAULT_MODEL_NAME: DeepSeek/deepseek-chat
+
+# 其他配置项
+PROXY: http://127.0.0.1:7890  # 可选：网络代理
+TIME_OUT: 180  # API 请求超时时间（秒）
+MAX_RETRIES: 2  # API 请求失败时的最大重试次数
+RETRY_DELAY: 3  # API 请求重试前的基础延迟时间（秒）
+SUMMARY_MAX_LENGTH: 800  # 手动触发总结时，默认获取的最大消息数量
+SUMMARY_MIN_LENGTH: 30  # 触发总结所需的最少消息数量
+SUMMARY_COOL_DOWN: 30  # 用户手动触发总结的冷却时间（秒，0表示无冷却）
+SUMMARY_ADMIN_LEVEL: 10  # 设置/取消本群定时总结所需的最低管理员等级
+CONCURRENT_TASKS: 3  # 同时处理总结任务的最大数量
+summary_output_type: image  # 总结输出类型 (image 或 text)
+summary_fallback_enabled: true  # 当图片生成失败时是否自动回退到文本模式
+summary_theme: vscode_dark  # 总结图片输出的主题 (可选: light, dark, vscode_light, vscode_dark)
 ```
+
+### 配置说明
+
+#### Provider 配置
+
+每个 Provider 配置包含以下字段：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `name` | 字符串 | 是 | Provider 的唯一名称标识，用于在切换模型时指定 |
+| `api_key` | 字符串或字符串列表 | 是 | Provider 的 API Key，可以是单个字符串或字符串列表（会随机选择一个使用） |
+| `api_base` | 字符串 | 是 | Provider 的 API Base URL |
+| `api_type` | 字符串 | 否 | API 类型，如 openai, claude, gemini, baidu 等，留空则自动推断 |
+| `openai_compat` | 布尔值 | 否 | 是否对 Gemini API 使用 OpenAI 兼容模式，默认为 false |
+| `temperature` | 浮点数 | 否 | Provider 级别的默认温度参数 |
+| `max_tokens` | 整数 | 否 | Provider 级别的默认最大 token 限制 |
+| `models` | 模型列表 | 是 | 该 Provider 支持的模型列表 |
+
+#### Model 配置
+
+每个 Model 配置包含以下字段：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `model_name` | 字符串 | 是 | 模型的具体名称，如 gemini-2.0-flash, deepseek-chat 等 |
+| `temperature` | 浮点数 | 否 | 覆盖 Provider 的温度参数 |
+| `max_tokens` | 整数 | 否 | 覆盖 Provider 的最大 token 限制 |
+
+### 模型切换
+
+使用以下命令切换模型：
+
+```
+总结切换模型 ProviderName/ModelName
+```
+
+例如：
+```
+总结切换模型 DeepSeek/deepseek-chat
+总结切换模型 Gemini/gemini-2.0-flash
+```
+
+### 查看可用模型
+
+使用以下命令查看所有可用模型：
+
+```
+总结模型列表
+```
+
+输出示例：
+```
+可用 AI 模型列表 (格式: ProviderName/ModelName)：
+
+Provider: DeepSeek
+  API Keys: [2 个密钥]
+  - deepseek-chat [当前激活] [默认]
+  - deepseek-reasoner
+
+Provider: Gemini
+  - gemini-2.0-flash
+  - gemini-2.5-flash-preview-04-17
+
+Provider: GLM
+  - glm-4-flash
+
+使用 '总结切换模型 ProviderName/ModelName' 来切换当前激活模型 (仅限超级用户)。
+```
+
+### 支持的 API 类型
+
+插件支持多种 API 类型，通常会根据模型名称自动推断，但也可以显式指定：
+
+- `gemini`: Google Gemini API
+- `openai`: OpenAI API 和兼容 OpenAI 接口的服务
+- `claude`: Anthropic Claude API
+- `deepseek`: DeepSeek API
+- `mistral`: Mistral AI API
+- `zhipu`: 智谱 GLM API
+- `xunfei`: 讯飞星火 API
+- `baidu`: 百度文心一言 API
+- `qwen`: 阿里通义千问 API
+
+如果模型名称不足以推断 API 类型，建议显式指定 `api_type` 字段。
 
 ## 功能演示
 
@@ -270,5 +415,33 @@ summary_group:
 本项目采用 MIT 许可证。详见 LICENSE 文件。
 
 原项目 [nonebot_plugin_summary_group](https://github.com/StillMisty/nonebot_plugin_summary_group) 采用 Apache-2.0 许可证。
+
+---
+
+## 版本更新
+
+### v0.5
+
+- 重构模型配置系统，支持按提供商分组管理多个 AI 模型
+- 新增 `SUMMARY_PROVIDERS` 配置结构，替代旧的单一模型配置
+- 支持 `ProviderName/ModelName` 格式的模型切换
+- 支持 API Key 轮询功能，可配置多个 API Key 随机使用
+- 支持模型参数继承与覆盖机制
+- 优化错误处理和日志记录
+- 移除对旧配置格式的兼容性代码
+
+### v0.4
+
+- 添加多模型切换功能
+- 支持 API Key 列表配置
+- 改进错误处理和重试机制
+- 优化总结输出格式
+
+### v0.3
+
+- 添加图片输出支持
+- 增加自定义主题功能
+- 优化定时任务管理
+- 修复多个稳定性问题
 
 ---

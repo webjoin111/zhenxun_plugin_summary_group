@@ -10,7 +10,7 @@ from zhenxun.configs.config import Config
 from zhenxun.configs.utils import PluginCdBlock, PluginExtraData, RegisterConfig
 from zhenxun.services.log import logger
 from zhenxun.utils.enum import LimitWatchType, PluginLimitType
-from zhenxun.utils.rules import admin_check, ensure_group  # noqa: F401
+from zhenxun.utils.rules import admin_check
 from zhenxun.utils.utils import FreqLimiter
 
 from .utils.scheduler import set_scheduler
@@ -29,19 +29,13 @@ require("nonebot_plugin_apscheduler")
 
 
 base_config = Config.get("summary_group")
-if base_config is None:
-    logger.error("[__init__.py] 无法加载 'summary_group' 配置!")
-    base_config = {}
 
 
 try:
-    cooldown_seconds = base_config.get("SUMMARY_COOL_DOWN")
+    cooldown_seconds = base_config.get("SUMMARY_COOL_DOWN", 60)
     if not isinstance(cooldown_seconds, int) or cooldown_seconds < 0:
         logger.warning("配置项 SUMMARY_COOL_DOWN 值无效，使用 60")
         cooldown_seconds = 60
-except TypeError:
-    logger.warning("配置项 SUMMARY_COOL_DOWN 未找到，使用 60")
-    cooldown_seconds = 60
 except Exception as e:
     logger.error(f"读取 SUMMARY_COOL_DOWN 配置失败: {e}，使用 60")
     cooldown_seconds = 60
@@ -64,11 +58,18 @@ def validate_and_parse_msg_count(count_input: Any) -> int:
     max_len = base_config.get("SUMMARY_MAX_LENGTH")
 
     if min_len is None or max_len is None:
+        logger.error("配置缺失: SUMMARY_MIN_LENGTH 或 SUMMARY_MAX_LENGTH 未在配置中找到或为 null。")
         raise ValueError("配置缺失: MIN/MAX_LENGTH")
+    try:
+        min_len_int = int(min_len)
+        max_len_int = int(max_len)
+    except (ValueError, TypeError):
+        logger.error(f"配置值 SUMMARY_MIN_LENGTH 或 SUMMARY_MAX_LENGTH 不是有效整数。")
+        raise ValueError("配置值错误: MIN/MAX_LENGTH 不是整数")
 
-    if not (min_len <= count <= max_len):
-        logger.warning(f"Validation failed: {count} not in range [{min_len}, {max_len}]")
-        raise ValueError(f"总结消息数量应在 {min_len} 到 {max_len} 之间")
+    if not (min_len_int <= count <= max_len_int):
+        logger.warning(f"Validation failed: {count} not in range [{min_len_int}, {max_len_int}]")
+        raise ValueError(f"总结消息数量应在 {min_len_int} 到 {max_len_int} 之间")
 
     logger.debug(f"Validation successful for count: {count}")
     return count
@@ -101,15 +102,22 @@ __plugin_meta__ = PluginMetadata(
     description="使用 AI 分析群聊记录，生成讨论内容的总结",
     usage=(
         "【基础命令】\n"
-        "  总结 [消息数量] [-p 风格] [内容] [@用户1 @用户2 ...]\n"
+        "  总结 [消息数量] [-p 风格] [-g 群号] [内容] [@用户1 @用户2 ...]\n"
         "    - 生成该群最近消息数量的内容总结\n"
         "    - 可选 -p/--prompt 指定总结风格 (例如: -p 正式, --prompt 锐评)\n"
+        "    - 可选 -g 指定群号 (需要超级用户权限)\n"
         "    - 可选指定[内容]过滤条件\n"
         "    - 可选指定[@用户]只总结特定用户的发言\n"
         "    - 例如：总结 100 关于项目进度\n"
         "    - 例如：总结 500 @张三 @李四\n"
-        "    - 例如：总结 200 -p 正式 关于BUG @张三\n\n"
-        "【仅限超级用户的命令】\n"
+        "    - 例如：总结 200 -p 正式 关于BUG @张三\n"
+        "    - 例如：总结 100 -g 123456 (超级用户)\n\n"
+        "【模型管理】\n"
+        "  总结模型列表\n"
+        "    - 列出当前可用的 AI 模型\n"
+        "  总结切换模型 ProviderName/ModelName\n"
+        "    - 切换当前使用的 AI 模型 (仅限超级用户)\n\n"
+        "【定时任务 - 需权限】\n"
         "  定时总结 [HH:MM或HHMM] [最少消息数量] [-p 风格] [-g 群号] [-all]\n"
         "    - 设置定时生成消息总结\n"
         "    - 可选 -p/--prompt 指定总结风格 (例如: -p 正式, --prompt 锐评)\n"
@@ -134,46 +142,31 @@ __plugin_meta__ = PluginMetadata(
     supported_adapters={"~onebot.v11"},
     extra=PluginExtraData(
         author="webjoin111",
-        version="0.2",
+        version="0.5",
         configs=[
             RegisterConfig(
                 module="summary_group",
-                key="SUMMARY_API_KEYS",
+                key="SUMMARY_PROVIDERS",
+                value=[],
+                help="配置多个 AI 服务提供商及其模型信息 (列表)",
+                default_value=[],
+                type=list[dict],
+            ),
+            RegisterConfig(
+                module="summary_group",
+                key="SUMMARY_DEFAULT_MODEL_NAME",
                 value=None,
-                help="API密钥列表或单个密钥",
-                default_value=None,
-            ),
-            RegisterConfig(
-                module="summary_group",
-                key="SUMMARY_API_BASE",
-                value="https://generativelanguage.googleapis.com",
-                help="API基础URL",
-                default_value="https://generativelanguage.googleapis.com",
-                type=str,
-            ),
-            RegisterConfig(
-                module="summary_group",
-                key="SUMMARY_MODEL",
-                value="gemini-2.0-flash-exp",
-                help="使用的AI模型名称",
-                default_value="gemini-2.0-flash-exp",
-                type=str,
-            ),
-            RegisterConfig(
-                module="summary_group",
-                key="SUMMARY_API_TYPE",
-                value=None,
-                help="API类型(如 openai, claude, gemini, baidu 等)，留空则根据模型名称自动推断",
+                help="默认使用的 AI 模型名称 (格式: ProviderName/ModelName)",
                 default_value=None,
                 type=str | None,
             ),
             RegisterConfig(
                 module="summary_group",
-                key="SUMMARY_OPENAI_COMPAT",
-                value=False,
-                help="是否对 Gemini API 使用 OpenAI 兼容模式访问 (需要对应 base url)",
-                default_value=False,
-                type=bool,
+                key="CURRENT_ACTIVE_MODEL_NAME",
+                value=None,
+                help="当前激活使用的 AI 模型名称 (格式: ProviderName/ModelName)",
+                default_value=None,
+                type=str | None,
             ),
             RegisterConfig(
                 module="summary_group",
@@ -283,7 +276,9 @@ summary_group = on_alconna(
         Args[
             "message_count",
             int,
-            Field(completion="输入要总结的消息数量 (配置范围内的整数)"),
+            Field(
+                completion=lambda: f"输入消息数量 ({base_config.get('SUMMARY_MIN_LENGTH', 1)}-{base_config.get('SUMMARY_MAX_LENGTH', 1000)})"
+            ),
         ],
         Option(
             "-p|--prompt",
@@ -303,8 +298,8 @@ summary_group = on_alconna(
             usage=(
                 "总结 <消息数量> [-p|--prompt 风格] [-g 群号] [@用户/内容过滤...]\n"
                 "消息数量范围: "
-                f"{Config.get('summary_group').get('SUMMARY_MIN_LENGTH')} - "
-                f"{Config.get('summary_group').get('SUMMARY_MAX_LENGTH')}\n"
+                f"{base_config.get('SUMMARY_MIN_LENGTH', 1)} - "
+                f"{base_config.get('SUMMARY_MAX_LENGTH', 1000)}\n"
                 "说明: -g 仅限超级用户"
             ),
             example=(
@@ -330,7 +325,7 @@ summary_set = on_alconna(
             "least_message_count?",
             int,
             Field(
-                default=Config.get("summary_group").get("SUMMARY_MAX_LENGTH"),
+                default=base_config.get("SUMMARY_MAX_LENGTH", 1000),
                 completion="输入定时总结所需的最少消息数量 (可选)",
             ),
         ],
@@ -428,11 +423,40 @@ summary_repair = on_alconna(
 )
 
 
+summary_switch_model = on_alconna(
+    Alconna(
+        "总结切换模型",
+        Args["provider_model", str, Field(completion="输入 ProviderName/ModelName")],
+        meta=CommandMeta(
+            description="切换当前使用的 AI 模型 (仅限超级用户)", usage="总结切换模型 ProviderName/ModelName"
+        ),
+    ),
+    permission=SUPERUSER,
+    priority=5,
+    block=True,
+)
+
+summary_list_models = on_alconna(
+    Alconna(
+        "总结模型列表",
+        meta=CommandMeta(description="列出可用的 AI 模型", usage="总结模型列表"),
+    ),
+    priority=5,
+    block=True,
+    permission=SUPERUSER,
+)
+
+
 from .handlers.health import (
     handle_health_check as health_check_handler_impl,
 )
 from .handlers.health import (
     handle_system_repair as system_repair_handler_impl,
+)
+from .handlers.model_control import (
+    handle_list_models,
+    handle_switch_model,
+    validate_active_model_on_startup,
 )
 from .handlers.scheduler import (
     check_scheduler_status_handler as check_status_handler_impl,
@@ -530,7 +554,7 @@ async def _(
         try:
             time_tuple = parse_and_validate_time(time_str_match)
 
-            default_count = Config.get("summary_group").get("SUMMARY_MAX_LENGTH")
+            default_count = base_config.get("SUMMARY_MAX_LENGTH")
             count_to_validate = least_count_match if least_count_match is not None else default_count
             least_count = validate_and_parse_msg_count(count_to_validate)
 
@@ -585,6 +609,33 @@ async def handle_system_fix(bot: Bot, event: GroupMessageEvent | PrivateMessageE
 driver = get_driver()
 
 
+@summary_switch_model.handle()
+async def _(
+    bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, provider_model: Match[str], target: MsgTarget
+):
+    if provider_model.available:
+        new_name = provider_model.result
+        success, message = handle_switch_model(new_name)
+        if success:
+            Config.set_config("summary_group", "CURRENT_ACTIVE_MODEL_NAME", new_name, auto_save=True)
+            logger.info(f"AI 模型已通过配置持久化切换为: {new_name}")
+            await UniMessage.text(f"已成功切换到模型: {new_name}").send(target)
+        else:
+            await UniMessage.text(message).send(target)
+    else:
+        await UniMessage.text("请输入要切换的模型名称 (格式: ProviderName/ModelName)。").send(target)
+
+
+@summary_list_models.handle()
+async def _(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget):
+    current_model_name = base_config.get("CURRENT_ACTIVE_MODEL_NAME")
+    message = handle_list_models(current_model_name)
+    await UniMessage.text(message).send(target)
+
+
 @driver.on_startup
 async def startup():
     set_scheduler()
+    validate_active_model_on_startup()
+    final_active_model = base_config.get("CURRENT_ACTIVE_MODEL_NAME")
+    logger.info(f"群聊总结插件启动，当前激活模型: {final_active_model or '未指定或配置错误'}")
