@@ -56,7 +56,7 @@ async def get_raw_group_msg_history(bot: Bot, group_id: int, count: int) -> list
 
 async def process_message(messages: list, bot: Bot, group_id: int) -> tuple[list[dict[str, str]], dict[str, str]]:
     logger.debug(
-        f"开始处理群 {group_id} 的 {len(messages)} 条原始消息 (准备普通和样式名)",
+        f"开始处理群 {group_id} 的 {len(messages)} 条原始消息",
         command="消息处理",
     )
     try:
@@ -85,7 +85,6 @@ async def process_message(messages: list, bot: Bot, group_id: int) -> tuple[list
                 continue
             user_id_str = str(user_id)
             sender_name = user_info_cache.get(user_id_str, f"用户_{user_id_str[-4:]}")
-            styled_sender_name = f'<span style="color: #a5d6ff; font-weight: bold;">{sender_name}</span>'
 
             raw_segments = msg.get("message", [])
             text_segments: list[str] = []
@@ -117,11 +116,11 @@ async def process_message(messages: list, bot: Bot, group_id: int) -> tuple[list
             if text_segments:
                 message_content = "".join(text_segments)
                 processed_log.append(
-                    {"name": sender_name, "styled_name": styled_sender_name, "content": message_content}
+                    {"name": sender_name, "content": message_content}
                 )
 
         logger.debug(
-            f"消息处理完成，生成 {len(processed_log)} 条包含普通和样式名的记录",
+            f"消息处理完成，生成 {len(processed_log)} 条处理记录",
             group_id=group_id,
         )
         return processed_log, user_info_cache

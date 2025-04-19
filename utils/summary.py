@@ -185,12 +185,10 @@ async def send_summary(bot: Bot, target: MsgTarget, summary: str) -> bool:
 
             plain_summary = summary.strip()
 
-            if "<span" in plain_summary:
+            # 移除任何HTML标签
+            if "<" in plain_summary and ">" in plain_summary:
                 import re
-
-                plain_summary = re.sub(
-                    r"<span[^>]*>([^<]+?)</span>", r"\1", plain_summary
-                )
+                plain_summary = re.sub(r"<[^>]+>", "", plain_summary)
 
             max_text_length = 4500
             full_text = f"{error_prefix}{plain_summary}"

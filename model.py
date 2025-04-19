@@ -302,6 +302,16 @@ class LLMModel(Model):
         headers = {}
         data = {}
 
+        # 将消息列表转换为文本格式
+        message_texts = []
+        for msg in messages:
+            name = msg.get("name", "未知用户")
+            content = msg.get("content", "")
+            if name and content:
+                message_texts.append(f"{name}: {content}")
+
+        content_str = "\n".join(message_texts)
+
         if self.api_type == "gemini":
             headers = {"Content-Type": "application/json"}
             data = {
@@ -309,7 +319,7 @@ class LLMModel(Model):
                     {
                         "parts": [
                             {
-                                "text": f"{prompt}\n\n以下是需要总结的对话内容：\n\n{messages}"
+                                "text": f"{prompt}\n\n以下是需要总结的对话内容：\n\n{content_str}"
                             }
                         ]
                     }
@@ -325,7 +335,7 @@ class LLMModel(Model):
                 "messages": [
                     {
                         "role": "user",
-                        "content": f"{prompt}\n\n以下是需要总结的对话内容：\n\n{messages}",
+                        "content": f"{prompt}\n\n以下是需要总结的对话内容：\n\n{content_str}",
                     }
                 ],
             }
@@ -339,7 +349,7 @@ class LLMModel(Model):
                 "messages": [
                     {
                         "role": "user",
-                        "content": f"{prompt}\n\n以下是需要总结的对话内容：\n\n{messages}",
+                        "content": f"{prompt}\n\n以下是需要总结的对话内容：\n\n{content_str}",
                     }
                 ],
             }
@@ -354,7 +364,7 @@ class LLMModel(Model):
                 "messages": [
                     {
                         "role": "user",
-                        "content": f"{prompt}\n\n以下是需要总结的对话内容：\n\n{messages}",
+                        "content": f"{prompt}\n\n以下是需要总结的对话内容：\n\n{content_str}",
                     }
                 ],
             }
@@ -364,7 +374,7 @@ class LLMModel(Model):
                 "messages": [
                     {
                         "role": "user",
-                        "content": f"{prompt}\n\n以下是需要总结的对话内容：\n\n{messages}",
+                        "content": f"{prompt}\n\n以下是需要总结的对话内容：\n\n{content_str}",
                     }
                 ]
             }
@@ -378,7 +388,7 @@ class LLMModel(Model):
                 "messages": [
                     {
                         "role": "user",
-                        "content": f"{prompt}\n\n以下是需要总结的对话内容：\n\n{messages}",
+                        "content": f"{prompt}\n\n以下是需要总结的对话内容：\n\n{content_str}",
                     }
                 ],
             }
