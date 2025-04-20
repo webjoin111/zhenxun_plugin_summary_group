@@ -393,7 +393,13 @@ async def process_summary_queue() -> None:
                             group_id=group_id,
                         )
                         try:
-                            summary = await messages_summary(messages=processed_messages, style=style)
+                            # 创建群聊目标对象传递给 messages_summary
+                            msg_target = Target.group(group_id=group_id)
+                            summary = await messages_summary(
+                                target=msg_target,
+                                messages=processed_messages,
+                                style=style
+                            )
 
                             logger.debug(
                                 f"[{task_id}] 群 {group_id} (风格: {style or '默认'}) "
@@ -583,7 +589,7 @@ def set_scheduler() -> None:
     if cleaned_count > 0:
         logger.debug(f"自动清理了 {cleaned_count} 个无效的群配置", command="scheduler")
 
-    group_configs = store.data.items()
+    group_configs = store.schedule_data.items()
     logger.debug(f"加载了 {len(group_configs)} 个群组的定时总结配置", command="scheduler")
 
     successful_count = 0

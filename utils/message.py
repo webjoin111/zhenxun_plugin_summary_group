@@ -63,6 +63,10 @@ async def process_message(
         if not messages:
             return [], {}
 
+        # 获取是否排除Bot消息的配置
+        exclude_bot = base_config.get("EXCLUDE_BOT_MESSAGES", False)
+        bot_self_id = bot.self_id
+
         user_info_cache: dict[str, str] = {}
         user_ids_to_fetch = {str(msg.get("user_id")) for msg in messages if msg.get("user_id")}
 
@@ -87,7 +91,13 @@ async def process_message(
             user_id = msg.get("user_id")
             if not user_id:
                 continue
+
+            # 排除Bot自身消息
             user_id_str = str(user_id)
+            if exclude_bot and user_id_str == bot_self_id:
+                logger.debug(f"排除Bot({bot_self_id})消息", command="消息处理", group_id=group_id)
+                continue
+
             sender_name = user_info_cache.get(user_id_str, f"用户_{user_id_str[-4:]}")
 
             raw_segments = msg.get("message", [])
@@ -122,7 +132,7 @@ async def process_message(
                 processed_log.append({"name": sender_name, "content": message_content})
 
         logger.debug(
-            f"消息处理完成，生成 {len(processed_log)} 条处理记录",
+            f"消息处理完成，生成 {len(processed_log)} 条处理记录 (已应用Bot排除设置: {exclude_bot})",
             group_id=group_id,
         )
         return processed_log, user_info_cache

@@ -490,7 +490,7 @@ def get_default_model_name() -> str | None:
 def detect_model() -> Model:
     """根据当前配置和状态选择并实例化模型"""
     try:
-        from .handlers.model_control import find_model, parse_provider_model_string, get_configured_providers
+        from .handlers.model_control import find_model, get_configured_providers, parse_provider_model_string
 
         logger.debug("[detect_model] 开始模型检测...")
 

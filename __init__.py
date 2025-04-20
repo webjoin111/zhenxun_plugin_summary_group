@@ -16,7 +16,7 @@ from zhenxun.utils.utils import FreqLimiter
 from .utils.scheduler import set_scheduler
 
 require("nonebot_plugin_alconna")
-from arclet.alconna import Alconna, Args, CommandMeta, Field, MultiVar, Option
+from arclet.alconna import Alconna, Args, CommandMeta, Field, MultiVar, Option, Subcommand
 from nonebot_plugin_alconna import (
     At,
     CommandResult,
@@ -64,7 +64,7 @@ def validate_and_parse_msg_count(count_input: Any) -> int:
         min_len_int = int(min_len)
         max_len_int = int(max_len)
     except (ValueError, TypeError):
-        logger.error(f"配置值 SUMMARY_MIN_LENGTH 或 SUMMARY_MAX_LENGTH 不是有效整数。")
+        logger.error("配置值 SUMMARY_MIN_LENGTH 或 SUMMARY_MAX_LENGTH 不是有效整数。")
         raise ValueError("配置值错误: MIN/MAX_LENGTH 不是整数")
 
     if not (min_len_int <= count <= max_len_int):
@@ -117,6 +117,17 @@ __plugin_meta__ = PluginMetadata(
         "    - 列出当前可用的 AI 模型\n"
         "  总结切换模型 ProviderName/ModelName\n"
         "    - 切换当前使用的 AI 模型 (仅限超级用户)\n\n"
+        "【分群设置 - 需权限】\n"
+        "  总结设置本群模型 ProviderName/ModelName\n"
+        "    - 设置本群默认使用的总结模型\n"
+        "  总结移除本群模型\n"
+        "    - 移除本群默认总结模型设置\n"
+        "  总结设置本群风格 <风格名称>\n"
+        "    - 设置本群默认的总结风格\n"
+        "  总结移除本群风格\n"
+        "    - 移除本群默认总结风格设置\n"
+        "  总结查看本群设置\n"
+        "    - 查看本群的总结特定设置\n\n"
         "【定时任务 - 需权限】\n"
         "  定时总结 [HH:MM或HHMM] [最少消息数量] [-p 风格] [-g 群号] [-all]\n"
         "    - 设置定时生成消息总结\n"
@@ -142,7 +153,7 @@ __plugin_meta__ = PluginMetadata(
     supported_adapters={"~onebot.v11"},
     extra=PluginExtraData(
         author="webjoin111",
-        version="0.5",
+        version="0.6",
         configs=[
             RegisterConfig(
                 module="summary_group",
@@ -253,6 +264,14 @@ __plugin_meta__ = PluginMetadata(
                 key="summary_fallback_enabled",
                 value=False,
                 help="当图片生成失败时是否自动回退到文本模式",
+                default_value=False,
+                type=bool,
+            ),
+            RegisterConfig(
+                module="summary_group",
+                key="EXCLUDE_BOT_MESSAGES",
+                value=False,
+                help="是否在总结时排除 Bot 自身发送的消息",
                 default_value=False,
                 type=bool,
             ),
@@ -446,7 +465,61 @@ summary_list_models = on_alconna(
     permission=SUPERUSER,
 )
 
+# --- 定义新的合并配置命令 ---
+summary_config_cmd = on_alconna(
+    Alconna(
+        "总结配置", # 主命令
+        Option("-g", Args["target_group_id?", int]), # -g 选项现在是全局的
+        Subcommand( # 模型子命令
+            "模型",
+            Subcommand("列表"), # 模型列表 (无需特殊权限)
+            Subcommand("切换", Args["provider_model", str]), # 切换全局模型 (需要 Superuser)
+            Subcommand("设置", Args["provider_model", str]), # 设置分群模型 (需要 Superuser)
+            Subcommand("移除")  # 移除分群模型 (需要 Superuser)
+        ),
+        Subcommand( # 风格子命令
+            "风格",
+            Subcommand("设置", Args["style_name", str]), # 设置分群风格 (需要 Admin 或 Superuser)
+            Subcommand("移除")  # 移除分群风格 (需要 Admin 或 Superuser)
+        ),
+        Subcommand("查看"), # 查看设置 (无需特殊权限)
+        meta=CommandMeta(
+            description="管理总结插件的配置",
+            usage=(
+                "总结配置 [-g 群号]\n"
+                "总结配置 模型 列表\n"
+                "总结配置 模型 切换 <Provider/Model>  (仅 Superuser)\n"
+                "总结配置 模型 设置 <Provider/Model> [-g 群号] (仅 Superuser)\n"
+                "总结配置 模型 移除 [-g 群号]         (仅 Superuser)\n"
+                "总结配置 风格 设置 <风格名称> [-g 群号] (需 Admin)\n"
+                "总结配置 风格 移除 [-g 群号]         (需 Admin)\n"
+                "总结配置 查看 [-g 群号]\n"
+                "注: 不带 -g 时，设置/移除/查看 默认作用于当前群聊。"
+            ),
+            example=(
+                "总结配置 查看\n"
+                "总结配置 -g 123456\n" # Superuser 查看指定群
+                "总结配置 模型 列表\n"
+                "总结配置 模型 切换 DeepSeek/deepseek-chat\n"
+                "总结配置 模型 设置 Gemini/gemini-pro\n" # 设置当前群
+                "总结配置 模型 设置 Gemini/gemini-pro -g 123456\n" # Superuser 设置指定群
+                "总结配置 模型 移除\n"
+                "总结配置 模型 移除 -g 123456\n"
+                "总结配置 风格 设置 简洁明了\n"
+                "总结配置 风格 设置 简洁明了 -g 123456\n"
+                "总结配置 风格 移除\n"
+                "总结配置 风格 移除 -g 123456\n"
+            )
+        )
+    ),
+    # --- 权限检查移到 Handler 内部 ---
+    # rule=ensure_group, # 允许私聊触发全局命令
+    priority=5,
+    block=True,
+)
 
+
+from .handlers.group_settings import handle_summary_config
 from .handlers.health import (
     handle_health_check as health_check_handler_impl,
 )
@@ -631,6 +704,12 @@ async def _(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: Ms
     current_model_name = base_config.get("CURRENT_ACTIVE_MODEL_NAME")
     message = handle_list_models(current_model_name)
     await UniMessage.text(message).send(target)
+
+
+# --- 注册新的配置命令 Handler ---
+@summary_config_cmd.handle()
+async def _(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget, result: CommandResult):
+    await handle_summary_config(bot, event, target, result)
 
 
 @driver.on_startup

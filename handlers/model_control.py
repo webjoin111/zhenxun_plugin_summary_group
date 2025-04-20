@@ -1,7 +1,12 @@
+from typing import TYPE_CHECKING
+
 from zhenxun.configs.config import Config
 from zhenxun.services.log import logger
 
 from ..model import ModelConfig, ModelDetail, ProviderConfig
+
+if TYPE_CHECKING:
+    from ..model import Model
 
 base_config = Config.get("summary_group")
 
@@ -245,12 +250,87 @@ def handle_list_models(current_active_name_str: str | None) -> str:
     return message.strip()
 
 
+def get_model_instance_by_name(active_model_name_str: str | None) -> "Model":
+    """根据指定的 ProviderName/ModelName 字符串实例化模型"""
+    from ..model import LLMModel, ModelException
+
+    logger.debug(f"[get_model_instance_by_name] 尝试实例化模型: {active_model_name_str}")
+
+    selected_provider = None
+    selected_model_detail = None
+
+    prov_name, mod_name = parse_provider_model_string(active_model_name_str)
+
+    if prov_name and mod_name:
+        found = find_model(prov_name, mod_name)
+        if found:
+            selected_provider, selected_model_detail = found
+        else:
+            logger.warning(f"[get_model_instance_by_name] 无法找到模型 '{active_model_name_str}' 的配置。")
+            # 这里不再回退，因为调用者应该已经处理了回退逻辑
+            # 如果需要，可以在这里再次尝试默认或第一个，但这会使逻辑重复
+            # 更好的方式是调用者确保传入有效的 name_str 或 None
+            raise ModelException(f"无法找到指定的模型配置: {active_model_name_str}")
+
+
+    # 如果传入的 name_str 本身就是 None，或者解析后找不到，则需要回退
+    # （但理论上调用者应该处理好这种情况）
+    if not selected_provider:
+         providers = get_configured_providers()
+         if providers and providers[0].models:
+              selected_provider = providers[0]
+              selected_model_detail = providers[0].models[0]
+              fallback_name = f"{selected_provider.name}/{selected_model_detail.model_name}"
+              logger.warning(f"[get_model_instance_by_name] 接收到无效或None的模型名，回退到第一个模型: {fallback_name}")
+         else:
+              logger.critical("[get_model_instance_by_name] 无法找到任何可用模型配置！")
+              raise ModelException("错误：未配置任何有效的 AI 模型。")
+
+
+    # 确定最终参数 (逻辑与旧 detect_model 类似)
+    final_api_keys = selected_provider.api_key
+    final_api_base = selected_provider.api_base
+    final_model_name = selected_model_detail.model_name
+    final_api_type = selected_provider.api_type
+    final_openai_compat = selected_provider.openai_compat
+    final_temperature = selected_model_detail.temperature if selected_model_detail.temperature is not None else selected_provider.temperature
+    final_max_tokens = selected_model_detail.max_tokens if selected_model_detail.max_tokens is not None else selected_provider.max_tokens
+
+    logger.debug(f"[get_model_instance_by_name] 最终选定 Provider: {selected_provider.name}, Model: {final_model_name}")
+
+    # 获取通用配置
+    proxy = base_config.get("PROXY")
+    timeout = base_config.get("TIME_OUT", 180)
+    max_retries = base_config.get("MAX_RETRIES", 2)
+    retry_delay = base_config.get("RETRY_DELAY", 3)
+
+    try:
+        # 实例化 LLMModel
+        return LLMModel(
+            api_keys=final_api_keys,
+            api_base=final_api_base,
+            summary_model=final_model_name,
+            api_type=final_api_type,
+            openai_compat=final_openai_compat,
+            temperature=final_temperature,
+            max_tokens=final_max_tokens,
+            proxy=proxy,
+            timeout=timeout,
+            max_retries=max_retries,
+            retry_delay=retry_delay,
+        )
+    except Exception as e:
+        logger.error(f"[get_model_instance_by_name] 实例化 LLMModel 时出错: {e}", exc_info=True)
+        raise ModelException(f"初始化模型时发生错误: {e}")
+
+
 __all__ = [
     "ModelConfig",
     "find_model",
     "get_configured_models",
     "get_configured_providers",
     "get_default_model_name",
+    "get_model_instance_by_name",
     "handle_list_models",
     "handle_switch_model",
     "parse_provider_model_string",

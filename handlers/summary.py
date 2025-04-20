@@ -279,11 +279,16 @@ async def handle_summary(
                 command="总结",
                 group_id=target_group_id_to_fetch,
             )
+            # --- 创建用于 messages_summary 的 target ---
+            # 这个 target 代表了总结内容的目标群聊，用于内部判断分群设置
+            summary_content_target = MsgTarget(str(target_group_id_to_fetch))
+
             summary = await messages_summary(
-                processed_messages,
-                content_value,
-                target_user_names if target_user_names else None,
-                style_value,
+                target=summary_content_target, # 传递内容目标
+                messages=processed_messages,
+                content=content_value,
+                target_user_names=target_user_names if target_user_names else None,
+                style=style_value, # 传递命令行 style
             )
             logger.debug(
                 f"群 {target_group_id_to_fetch} 总结生成成功，长度: {len(summary)} 字符",
