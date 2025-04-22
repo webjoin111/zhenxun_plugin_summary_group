@@ -135,18 +135,52 @@ async def handle_summary(
         content_parts: list[str] = []
         target_user_names: list[str] = []
 
+        style_value = style.result if style.available else None
+
         if parts.available:
+            logger.debug(f"Parts available: {parts.result}", command="总结")
+
             for part in parts.result:
-                if isinstance(part, At):
-                    if part.target:
-                        target_user_ids.add(str(part.target))
-                elif isinstance(part, Text):
+                if isinstance(part, At) and part.target:
+                    target_user_ids.add(str(part.target))
+                    logger.debug(f"Added target user: {part.target}", command="总结")
+
+            for part in parts.result:
+                if isinstance(part, Text):
                     stripped_text = part.text.strip()
                     if stripped_text:
                         content_parts.append(stripped_text)
+                        logger.debug(f"Added content part: {stripped_text}", command="总结")
+
+        arp = result.result
+        if arp and "$extra" in arp.main_args:
+            extra_args = arp.main_args.get("$extra", [])
+            if extra_args:
+                logger.debug(f"Found extra args: {extra_args}", command="总结")
+
+                for arg in extra_args:
+                    if isinstance(arg, At) and arg.target:
+                        target_user_ids.add(str(arg.target))
+                        logger.debug(f"Added target user from $extra: {arg.target}", command="总结")
+
+                for arg in extra_args:
+                    if isinstance(arg, Text):
+                        stripped_text = arg.text.strip()
+                        if stripped_text:
+                            content_parts.append(stripped_text)
+                            logger.debug(f"Added content part from $extra: {stripped_text}", command="总结")
 
         content_value = " ".join(content_parts)
-        style_value = style.result if style.available else None
+
+        if target_user_ids:
+            logger.debug(f"最终收集到 {len(target_user_ids)} 个目标用户: {target_user_ids}", command="总结")
+        if content_value:
+            logger.debug(f"最终收集到内容过滤: '{content_value}'", command="总结")
+
+        if target_user_ids:
+            logger.debug(f"最终收集到 {len(target_user_ids)} 个目标用户: {target_user_ids}", command="总结")
+        if content_value:
+            logger.debug(f"最终收集到内容过滤: '{content_value}'", command="总结")
 
         logger.debug(
             f"总结参数: 目标群={target_group_id_to_fetch}, 消息数量={message_count}, 风格='{style_value or '默认'}', "
@@ -282,11 +316,14 @@ async def handle_summary(
                 command="总结",
                 group_id=target_group_id_to_fetch,
             )
+            summary_content_target = MsgTarget(str(target_group_id_to_fetch))
+
             summary = await messages_summary(
-                processed_messages,
-                content_value,
-                target_user_names if target_user_names else None,
-                style_value,
+                target=summary_content_target,
+                messages=processed_messages,
+                content=content_value,
+                target_user_names=target_user_names if target_user_names else None,
+                style=style_value,
             )
             logger.debug(
                 f"群 {target_group_id_to_fetch} 总结生成成功，长度: {len(summary)} 字符",

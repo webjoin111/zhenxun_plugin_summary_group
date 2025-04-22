@@ -58,11 +58,9 @@ def validate_and_parse_msg_count(count_input: Any) -> int:
         logger.warning(f"消息数量验证失败: '{count_input!r}' 不是有效整数")
         raise ValueError("消息数量必须是一个有效的整数")
 
-    # 获取配置的最小和最大值（默认50-1000）
     min_len = int(base_config.get("SUMMARY_MIN_LENGTH") or 50)
     max_len = int(base_config.get("SUMMARY_MAX_LENGTH") or 1000)
 
-    # 验证输入值是否在范围内
     if count < min_len:
         logger.warning(f"消息数量验证失败: {count} < {min_len}")
         raise ValueError(f"总结消息数量不能小于 {min_len}")
@@ -299,6 +297,8 @@ summary_group = on_alconna(
             Field(default=[], completion="可以@用户 或 输入要过滤的关键词"),
         ],
         meta=CommandMeta(
+            compact=True,
+            strict=False,
             description="生成群聊总结",
             usage=(
                 "总结 <消息数量> [-p|--prompt 风格] [-g 群号] [@用户/内容过滤...]\n"
@@ -310,12 +310,13 @@ summary_group = on_alconna(
             example=(
                 "总结 300\n"
                 "总结 500 -p 锐评\n"
-                "总结 200 @张三 关于项目\n"
-                "总结 100 -p 正式 @李四\n"
+                "总结 200 @张三\n"
+                "总结 200 关于项目\n"
+                "总结 300 -p 锐评 @张三\n"
+                "总结 100 -p 正式 @李四 关于项目\n"
                 "总结 100 -g 12345678 (超级用户)\n"
-                "总结 200 -g 87654321 关于项目 (超级用户)"
+                "总结 200 -g 87654321 -p 锐评 @张三 (超级用户)"
             ),
-            compact=False,
         ),
     ),
     priority=5,
@@ -487,7 +488,6 @@ async def _(
         logger.debug(f"用户 {user_id_str} 是超级用户，跳过冷却检查。")
 
     try:
-        # 验证消息数量是否在配置的范围内
         try:
             message_count = validate_and_parse_msg_count(message_count)
         except ValueError as e:
