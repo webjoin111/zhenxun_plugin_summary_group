@@ -8,8 +8,8 @@ from zhenxun.configs.config import Config
 from zhenxun.models.ban_console import BanConsole
 from zhenxun.models.bot_console import BotConsole
 from zhenxun.models.group_console import GroupConsole
+from zhenxun.models.level_user import LevelUser
 from zhenxun.services.log import logger
-from zhenxun.utils.rules import admin_check
 
 from ..store import Store
 from .model_control import find_model, handle_list_models, handle_switch_model, parse_provider_model_string
@@ -36,8 +36,11 @@ async def _check_perms(bot: Bot, event: GroupMessageEvent, target: MsgTarget) ->
             return False
         if await BanConsole.is_ban(user_id_str, group_id):
             return False
-        is_admin = await admin_check("summary_group", "SUMMARY_ADMIN_LEVEL")(bot, event)
+
+        required_level = Config.get_config("summary_group", "SUMMARY_ADMIN_LEVEL", 10)
+        is_admin = await LevelUser.check_level(user_id_str, str(group_id), required_level)
         is_superuser = await SUPERUSER(bot, event)
+
         if not (is_admin or is_superuser):
             await UniMessage.text("需要管理员权限才能设置本群总结配置。").send(target)
             return False
@@ -205,9 +208,7 @@ async def _remove_group_style(target: MsgTarget, group_id: str, operator_id: str
         await UniMessage.text(f"移除失败或群聊 {group_id} 未设置默认风格。").send(target)
 
 
-async def _show_settings(
-    bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget, group_id_to_show: str
-):
+async def _show_settings(target: MsgTarget, group_id_to_show: str):
     """内部函数：显示指定群组的设置"""
     settings = store.get_all_group_settings(group_id_to_show)
     global_active_model = Config.get_config("summary_group", "CURRENT_ACTIVE_MODEL_NAME")
@@ -261,7 +262,7 @@ async def handle_show_group_settings(bot: Bot, event: GroupMessageEvent, target:
         await UniMessage.text("检查权限时出错。").send(target)
         return
 
-    await _show_settings(bot, event, target, group_id_str)
+    await _show_settings(target, group_id_str)
 
 
 async def handle_summary_config(
@@ -276,7 +277,7 @@ async def handle_summary_config(
 
     if not arp or not arp.matched:
         if originating_group_id:
-            await _show_settings(bot, event, target, str(originating_group_id))
+            await _show_settings(target, str(originating_group_id))
         else:
             await UniMessage.text(
                 "请在群聊中使用此命令查看或配置群组设置，或使用 '总结配置 模型 列表/切换'。"
@@ -334,15 +335,20 @@ async def handle_summary_config(
             await UniMessage.text("模型操作无效，请使用 '列表', '切换', '设置', '移除'。").send(target)
 
     elif arp.find("风格"):
-        is_admin = False
-        if originating_group_id:
-            is_admin = await admin_check("summary_group", "SUMMARY_ADMIN_LEVEL")(bot, event)
+        can_proceed = False
+        required_level = Config.get_config("summary_group", "SUMMARY_ADMIN_LEVEL", 10)
+        if is_superuser:
+            can_proceed = True
+        elif originating_group_id and isinstance(event, GroupMessageEvent):
+            if await LevelUser.check_level(user_id_str, str(originating_group_id), required_level):
+                can_proceed = True
+
+        if not can_proceed:
+            await UniMessage.text("需要管理员权限才能设置或移除本群风格。").send(target)
+            return
 
         if not target_group_id_str:
             await UniMessage.text("请在群内使用或使用 -g <群号> 指定要操作的群组。").send(target)
-            return
-        if not (is_admin or is_superuser):
-            await UniMessage.text("需要管理员权限才能设置或移除本群风格。").send(target)
             return
         if not await _check_group_status(bot, target, target_group_id_str):
             return
@@ -361,14 +367,16 @@ async def handle_summary_config(
             return
         if not await _check_group_status(bot, target, target_group_id_str):
             return
-        await _show_settings(bot, event, target, target_group_id_str)
+        await _show_settings(target, target_group_id_str)
 
     else:
         if target_group_id_str:
             if not await _check_group_status(bot, target, target_group_id_str):
                 return
-            await _show_settings(bot, event, target, target_group_id_str)
+            await _show_settings(target, target_group_id_str)
         elif not originating_group_id:
             await UniMessage.text("无效命令。请使用 '总结配置 查看/模型/风格...' 或在群聊中使用。").send(
                 target
             )
+        else:
+            await _show_settings(target, target_group_id_str)
