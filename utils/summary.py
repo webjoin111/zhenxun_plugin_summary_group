@@ -68,7 +68,13 @@ async def messages_summary(
             )
         else:
             prompt_parts.append(
-                f"任务：请详细总结用户 [{user_list_str}] 在以下聊天记录中的所有发言内容和主要观点。"
+                f"任务：请分别详细总结每个用户 [{user_list_str}] 在以下聊天记录中的所有发言内容和主要观点。"
+            )
+
+        # 如果有多个用户，添加额外的提示
+        if len(target_user_names) > 1:
+            prompt_parts.append(
+                f"请注意：这里有 {len(target_user_names)} 个不同的用户，必须分别对每个用户的发言进行单独总结."
             )
 
         logger.debug(
