@@ -155,7 +155,7 @@ async def generate_image(summary: str) -> bytes:
 
         css_path = (Path(__file__).parent.parent / "assert" / css_file).resolve()
         logger.debug(f"使用主题 {theme or '默认'} 生成图片", command="图片生成")
-        img = await md_to_pic(md=summary, css_path=css_path)
+        img = await md_to_pic(md=summary, css_path=css_path, width=850)
 
         return img
     except Exception as e:
@@ -275,12 +275,10 @@ _由 群聊总结插件 v{base_config.get("version", "2.0")} 生成_
 
         logger.debug(f"使用主题 {theme or '默认'} 生成帮助文档图片，CSS路径: {css_path}", command="总结帮助")
 
-        extra_css = "body { font-size: 14px; } .markdown-body { padding: 20px; }"
-
         if css_path and css_path.exists():
-            img = await md_to_pic(md=styled_md, css_path=css_path, width=850, extra_css=extra_css)
+            img = await md_to_pic(md=styled_md, css_path=css_path, width=850)
         else:
-            img = await md_to_pic(md=styled_md, width=850, extra_css=extra_css)
+            img = await md_to_pic(md=styled_md, width=850)
         return img
 
     except Exception as e:
