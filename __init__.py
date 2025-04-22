@@ -172,18 +172,48 @@ __plugin_meta__ = PluginMetadata(
             RegisterConfig(
                 module="summary_group",
                 key="SUMMARY_PROVIDERS",
-                value=[],
+                value=[
+                    {
+                        "name": "DeepSeek",
+                        "api_key": "sk-******",
+                        "api_base": "https://api.deepseek.com",
+                        "models": [
+                            {"model_name": "deepseek-chat", "max_tokens": 4096, "temperature": 0.7},
+                            {"model_name": "deepseek-reasoner"},
+                        ],
+                    },
+                    {
+                        "name": "GLM",
+                        "api_key": "**********.***********",
+                        "api_base": "https://open.bigmodel.cn/api/paas",
+                        "api_type": "zhipu",
+                        "models": [{"model_name": "glm-4-flash", "max_tokens": 4096, "temperature": 0.7}],
+                    },
+                    {
+                        "name": "ARK",
+                        "api_key": "********-****-****-****-************",
+                        "api_base": "https://ark.cn-beijing.volces.com/api/v3",
+                        "api_type": "openai",
+                        "models": [{"model_name": "ep-202503210****-****"}],
+                    },
+                    {
+                        "name": "Gemini",
+                        "api_key": [
+                            "AIzaSy*****************************",
+                            "AIzaSy*****************************",
+                            "AIzaSy*****************************",
+                        ],
+                        "api_base": "https://generativelanguage.googleapis.com",
+                        "temperature": 0.8,
+                        "models": [
+                            {"model_name": "gemini-2.0-flash"},
+                            {"model_name": "gemini-2.5-flash-preview-04-17"},
+                        ],
+                    },
+                ],
                 help="配置多个 AI 服务提供商及其模型信息 (列表)",
                 default_value=[],
                 type=list[dict],
-            ),
-            RegisterConfig(
-                module="summary_group",
-                key="SUMMARY_DEFAULT_MODEL_NAME",
-                value=None,
-                help="默认使用的 AI 模型名称 (格式: ProviderName/ModelName)",
-                default_value=None,
-                type=str | None,
             ),
             RegisterConfig(
                 module="summary_group",
@@ -288,6 +318,14 @@ __plugin_meta__ = PluginMetadata(
                 help="是否在总结时排除 Bot 自身发送的消息",
                 default_value=False,
                 type=bool,
+            ),
+            RegisterConfig(
+                module="summary_group",
+                key="SUMMARY_DEFAULT_MODEL_NAME",
+                value="DeepSeek/deepseek-chat",
+                help="默认使用的 AI 模型名称 (格式: ProviderName/ModelName)",
+                default_value="DeepSeek/deepseek-chat",
+                type=str,
             ),
         ],
         limits=[
