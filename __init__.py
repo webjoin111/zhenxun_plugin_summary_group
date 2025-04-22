@@ -479,6 +479,19 @@ summary_list_models = on_alconna(
     permission=SUPERUSER,
 )
 
+summary_help = on_alconna(
+    Alconna(
+        "总结帮助",
+        meta=CommandMeta(
+            description="显示总结插件的帮助文档",
+            usage="总结帮助",
+            example="总结帮助",
+        ),
+    ),
+    priority=5,
+    block=True,
+)
+
 summary_config_cmd = on_alconna(
     Alconna(
         "总结配置",
@@ -552,6 +565,7 @@ from .handlers.scheduler import (
     handle_summary_set as summary_set_handler_impl,
 )
 from .handlers.summary import handle_summary as summary_handler_impl
+from .utils.summary import generate_help_image
 
 
 @summary_group.handle()
@@ -715,6 +729,23 @@ async def _(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: Ms
     current_model_name = base_config.get("CURRENT_ACTIVE_MODEL_NAME")
     message = handle_list_models(current_model_name)
     await UniMessage.text(message).send(target)
+
+
+@summary_help.handle()
+async def _(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget):
+    try:
+        usage_text = __plugin_meta__.usage
+
+        try:
+            img_bytes = await generate_help_image(usage_text)
+            await UniMessage.image(raw=img_bytes).send(target)
+            logger.info("已发送总结帮助图片", command="总结帮助")
+        except Exception as e:
+            logger.warning(f"生成帮助图片失败，使用文本模式: {e}", command="总结帮助")
+            await UniMessage.text(f"📖 群聊总结插件帮助文档\n\n{usage_text}").send(target)
+    except Exception as e:
+        logger.error(f"总结帮助命令处理失败: {e}", command="总结帮助", e=e)
+        await UniMessage.text(f"生成帮助文档时出错: {e}").send(target)
 
 
 @summary_config_cmd.handle()

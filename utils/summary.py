@@ -155,7 +155,7 @@ async def generate_image(summary: str) -> bytes:
 
         css_path = (Path(__file__).parent.parent / "assert" / css_file).resolve()
         logger.debug(f"使用主题 {theme or '默认'} 生成图片", command="图片生成")
-        img = await md_to_pic(summary, css_path=css_path)
+        img = await md_to_pic(md=summary, css_path=css_path)
 
         return img
     except Exception as e:
@@ -164,6 +164,128 @@ async def generate_image(summary: str) -> bytes:
             raise ImageGenerationException(f"图片生成失败: {e!s}")
         else:
             raise
+
+
+async def generate_help_image(_: str = "") -> bytes:
+    """生成帮助文档图片
+
+    Args:
+        _: 原始的帮助文档文本，现在不再使用，保留参数仅为兼容性
+    """
+    if md_to_pic is None:
+        raise ValueError("图片生成功能未启用或 htmlrender 未正确加载")
+
+    try:
+        styled_md = f"""
+# 📖 群聊总结插件帮助文档
+
+## 📋 核心功能
+
+- `总结 <消息数量>` - 对当前群聊最近指定数量的消息进行总结
+  - 示例: `总结 300`
+
+- `总结 <消息数量> -p <风格>` - 指定总结的风格 (如：正式, 幽默, 锐评)
+  - 示例: `总结 100 -p 幽默`
+
+- `总结 <消息数量> @用户1 @用户2 ...` - 只总结被@用户的发言
+  - 示例: `总结 500 @张三 @李四`
+
+- `总结 <消息数量> <关键词>` - 只总结包含指定关键词的消息内容
+  - 示例: `总结 200 关于项目进度`
+
+- `总结 <数量> [-p 风格] [@用户] [关键词] -g <群号>` _(限 Superuser)_ - 远程总结指定群号的聊天记录
+  - 示例: `总结 150 -g 12345678`
+
+## ⚙️ 配置管理 (统一入口: /总结配置)
+
+- `/总结配置 查看 [-g 群号]` - 查看当前群（或指定群）的特定设置
+  - 不带参数直接输入 `/总结配置` 效果相同
+  - 示例: `/总结配置 查看` 或 `/总结配置` 或 `/总结配置 查看 -g 123456`
+
+- `/总结配置 模型 列表` - 查看所有可用的 AI 模型列表
+  - 示例: `/总结配置 模型 列表`
+
+- `/总结配置 模型 切换 <Provider/Model>` _(仅限 Superuser)_ - 切换全局默认使用的 AI 模型
+  - 示例: `/总结配置 模型 切换 DeepSeek/deepseek-chat`
+
+- `/总结配置 模型 设置 <Provider/Model> [-g 群号]` _(仅限 Superuser)_ - 设置当前群（或指定群）使用的特定模型
+  - 示例: `/总结配置 模型 设置 Gemini/gemini-pro` 或 `/总结配置 模型 设置 Gemini/gemini-pro -g 123456`
+
+- `/总结配置 模型 移除 [-g 群号]` _(仅限 Superuser)_ - 移除当前群（或指定群）的特定模型设置，恢复使用全局模型
+  - 示例: `/总结配置 模型 移除` 或 `/总结配置 模型 移除 -g 123456`
+
+- `/总结配置 风格 设置 <风格名称> [-g 群号]` _(限 Admin/Superuser)_ - 设置当前群（或指定群）的默认总结风格
+  - 示例: `/总结配置 风格 设置 简洁明了` 或 `/总结配置 风格 设置 简洁明了 -g 123456`
+
+- `/总结配置 风格 移除 [-g 群号]` _(限 Admin/Superuser)_ - 移除当前群（或指定群）的默认风格设置
+  - 示例: `/总结配置 风格 移除` 或 `/总结配置 风格 移除 -g 123456`
+
+## ⏱️ 定时任务 (需 Admin/Superuser 权限)
+
+- `定时总结 <时间> [消息数量] [-p 风格] [-g 群号 | -all]` - 设置定时发送总结 (HH:MM 或 HHMM 格式)
+  - `-g` 指定群, `-all` 对所有群 (仅 Superuser)
+  - 示例: `定时总结 22:30 500` (设置本群)
+  - 示例: `定时总结 0800 -g 123456` (Superuser 设置指定群)
+
+- `定时总结取消 [-g 群号 | -all]` - 取消定时总结任务
+  - 示例: `定时总结取消` (取消本群)
+
+## 💏 系统管理 (仅限 Superuser)
+
+- `总结调度状态 [-d]` - 查看所有定时任务的运行状态
+
+- `总结健康检查` - 检查插件各组件的健康状况
+
+- `总结系统修复` - 尝试自动修复检测到的系统问题
+
+## ℹ️ 提示
+
+- 消息数量范围: {base_config.get("SUMMARY_MIN_LENGTH", 1)} - {base_config.get("SUMMARY_MAX_LENGTH", 1000)}
+- 冷却时间: {base_config.get("SUMMARY_COOL_DOWN", 60)} 秒
+- 配置相关命令中的 `-g <群号>` 参数需要 Superuser 权限
+
+---
+
+_由 群聊总结插件 v{base_config.get("version", "2.0")} 生成_
+        """.strip()
+
+        css_file = "github-markdown-dark.css"
+        theme = base_config.get("summary_theme", "vscode_dark")
+        logger.debug(f"从配置中获取主题设置: {theme}", command="总结帮助")
+
+        if theme == "light":
+            css_file = "github-markdown-light.css"
+        elif theme == "dark":
+            css_file = "github-markdown-dark.css"
+        elif theme == "vscode_dark":
+            css_file = "vscode-dark.css"
+        elif theme == "vscode_light":
+            css_file = "vscode-light.css"
+
+        css_path = (Path(__file__).parent.parent / "assert" / css_file).resolve()
+
+        if not css_path.exists():
+            logger.warning(f"CSS文件 {css_file} 不存在，将使用默认样式", command="总结帮助")
+            css_file = "github-markdown-dark.css"
+            css_path = (Path(__file__).parent.parent / "assert" / css_file).resolve()
+
+            if not css_path.exists():
+                logger.warning("默认CSS文件也不存在，将不使用自定义CSS", command="总结帮助")
+                css_path = None
+
+        logger.debug(f"使用主题 {theme or '默认'} 生成帮助文档图片，CSS路径: {css_path}", command="总结帮助")
+
+        extra_css = "body { font-size: 14px; } .markdown-body { padding: 20px; }"
+
+        if css_path and css_path.exists():
+            img = await md_to_pic(md=styled_md, css_path=css_path, width=850, extra_css=extra_css)
+        else:
+            img = await md_to_pic(md=styled_md, width=850, extra_css=extra_css)
+        return img
+
+    except Exception as e:
+        logger.error(f"生成帮助文档图片失败: {e}", command="总结帮助", e=e)
+        raise ImageGenerationException(f"生成帮助文档图片失败: {e!s}")
 
 
 async def send_summary(bot: Bot, target: MsgTarget, summary: str) -> bool:
