@@ -40,6 +40,7 @@ async def messages_summary(
     content: str | None = None,
     target_user_names: list[str] | None = None,
     style: str | None = None,
+    target=None,
 ) -> str:
     if not messages:
         logger.warning("没有足够的聊天记录可供总结", command="messages_summary")
@@ -49,9 +50,7 @@ async def messages_summary(
 
     if style:
         prompt_parts.append(f"重要指令：请严格使用 '{style}' 的风格进行总结。")
-        logger.debug(
-            f"已应用总结风格: '{style}' (置于Prompt开头)", command="messages_summary"
-        )
+        logger.debug(f"已应用总结风格: '{style}' (置于Prompt开头)", command="messages_summary")
 
     if target_user_names:
         user_list_str = ", ".join(target_user_names)
@@ -89,14 +88,11 @@ async def messages_summary(
         except ModelException:
             raise
         except Exception as e:
-            logger.error(
-                f"生成总结失败 (invoke_model): {e}", command="messages_summary", e=e
-            )
+            logger.error(f"生成总结失败 (invoke_model): {e}", command="messages_summary", e=e)
 
             raise ModelException(f"生成总结时发生内部错误: {e!s}") from e
 
     try:
-
         max_retries = base_config.get("MAX_RETRIES")
         retry_delay = base_config.get("RETRY_DELAY")
         summary_text = await with_retry(
@@ -107,9 +103,7 @@ async def messages_summary(
 
         return summary_text
     except ModelException as e:
-        logger.error(
-            f"总结生成失败，已达最大重试次数: {e}", command="messages_summary", e=e
-        )
+        logger.error(f"总结生成失败，已达最大重试次数: {e}", command="messages_summary", e=e)
         raise
     except Exception as e:
         logger.error(
@@ -121,11 +115,9 @@ async def messages_summary(
 
 
 async def generate_image(summary: str) -> bytes:
-
     if md_to_pic is None:
         raise ValueError("图片生成功能未启用或 htmlrender 未正确加载")
     try:
-
         css_file = "github-markdown-dark.css"
         theme = base_config.get("summary_theme")
 
@@ -153,7 +145,6 @@ async def generate_image(summary: str) -> bytes:
 
 async def send_summary(bot: Bot, target: MsgTarget, summary: str) -> bool:
     try:
-
         reply_msg = None
         output_type = base_config.get("summary_output_type")
         fallback_enabled = base_config.get("summary_fallback_enabled")
@@ -165,7 +156,6 @@ async def send_summary(bot: Bot, target: MsgTarget, summary: str) -> bool:
                 reply_msg = UniMessage.image(raw=img_bytes)
             except (ImageGenerationException, ValueError) as e:
                 if not fallback_enabled:
-
                     logger.error(
                         f"图片生成失败且未启用文本回退: {e}",
                         command="send_summary",
@@ -173,14 +163,11 @@ async def send_summary(bot: Bot, target: MsgTarget, summary: str) -> bool:
                     )
                     return False
 
-                logger.warning(
-                    f"图片生成失败，已启用文本回退: {e}", command="send_summary"
-                )
+                logger.warning(f"图片生成失败，已启用文本回退: {e}", command="send_summary")
 
         if reply_msg is None:
             error_prefix = ""
             if output_type == "image" and fallback_enabled:
-
                 error_prefix = "⚠️ 图片生成失败，降级为文本输出：\n\n"
 
             plain_summary = summary.strip()
@@ -188,6 +175,7 @@ async def send_summary(bot: Bot, target: MsgTarget, summary: str) -> bool:
             # 移除任何HTML标签
             if "<" in plain_summary and ">" in plain_summary:
                 import re
+
                 plain_summary = re.sub(r"<[^>]+>", "", plain_summary)
 
             max_text_length = 4500
@@ -200,9 +188,7 @@ async def send_summary(bot: Bot, target: MsgTarget, summary: str) -> bool:
         if reply_msg:
             await reply_msg.send(target, bot)
 
-            logger.info(
-                f"总结已发送，类型: {output_type or 'text'}", command="send_summary"
-            )
+            logger.info(f"总结已发送，类型: {output_type or 'text'}", command="send_summary")
             return True
 
         logger.error("无法发送总结：回复消息为空", command="send_summary")
