@@ -45,33 +45,26 @@ logger.info(f"群聊总结插件冷却限制器已初始化，冷却时间: {coo
 
 
 def validate_and_parse_msg_count(count_input: Any) -> int:
-    logger.debug(
-        f"--- Validator validate_and_parse_msg_count called with input: {count_input!r} (type: {type(count_input)}) ---"
-    )
+    """验证并解析消息数量，确保在配置的范围内"""
     try:
         count = int(count_input)
     except (ValueError, TypeError):
-        logger.warning(f"Validation failed: Input '{count_input!r}' cannot be converted to integer.")
+        logger.warning(f"消息数量验证失败: '{count_input!r}' 不是有效整数")
         raise ValueError("消息数量必须是一个有效的整数")
 
-    min_len = base_config.get("SUMMARY_MIN_LENGTH")
-    max_len = base_config.get("SUMMARY_MAX_LENGTH")
+    # 获取配置的最小和最大值（默认50-1000）
+    min_len = int(base_config.get("SUMMARY_MIN_LENGTH") or 50)
+    max_len = int(base_config.get("SUMMARY_MAX_LENGTH") or 1000)
 
-    if min_len is None or max_len is None:
-        logger.error("配置缺失: SUMMARY_MIN_LENGTH 或 SUMMARY_MAX_LENGTH 未在配置中找到或为 null。")
-        raise ValueError("配置缺失: MIN/MAX_LENGTH")
-    try:
-        min_len_int = int(min_len)
-        max_len_int = int(max_len)
-    except (ValueError, TypeError):
-        logger.error("配置值 SUMMARY_MIN_LENGTH 或 SUMMARY_MAX_LENGTH 不是有效整数。")
-        raise ValueError("配置值错误: MIN/MAX_LENGTH 不是整数")
+    # 验证输入值是否在范围内
+    if count < min_len:
+        logger.warning(f"消息数量验证失败: {count} < {min_len}")
+        raise ValueError(f"总结消息数量不能小于 {min_len}")
 
-    if not (min_len_int <= count <= max_len_int):
-        logger.warning(f"Validation failed: {count} not in range [{min_len_int}, {max_len_int}]")
-        raise ValueError(f"总结消息数量应在 {min_len_int} 到 {max_len_int} 之间")
+    if count > max_len:
+        logger.warning(f"消息数量验证失败: {count} > {max_len}")
+        raise ValueError(f"总结消息数量不能超过 {max_len}")
 
-    logger.debug(f"Validation successful for count: {count}")
     return count
 
 
@@ -647,6 +640,17 @@ async def _(
         logger.debug(f"用户 {user_id_str} 是超级用户，跳过冷却检查。")
 
     try:
+        # 验证消息数量是否在配置的范围内
+        try:
+            message_count = validate_and_parse_msg_count(message_count)
+        except ValueError as e:
+            await UniMessage.text(str(e)).send(target)
+            return
+        except Exception as e:
+            logger.error(f"验证消息数量时出错: {e}", command="总结")
+            await UniMessage.text(f"验证消息数量时出错: {e}").send(target)
+            return
+
         await summary_handler_impl(bot, event, result, message_count, style, parts, target)
     except Exception as e:
         logger.error(
