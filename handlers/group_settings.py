@@ -1,9 +1,8 @@
-# 不再需要 Optional 导入，使用 | None 语法
+from arclet.alconna import Arparma
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, PrivateMessageEvent
 from nonebot.permission import SUPERUSER
-from nonebot_plugin_alconna import Match, UniMessage, CommandResult
+from nonebot_plugin_alconna import CommandResult, Match, UniMessage
 from nonebot_plugin_alconna.uniseg import MsgTarget
-from arclet.alconna import Arparma
 
 from zhenxun.configs.config import Config
 from zhenxun.models.ban_console import BanConsole
@@ -17,12 +16,13 @@ from .model_control import find_model, handle_list_models, handle_switch_model, 
 
 store = Store()
 
+
 async def _check_perms(bot: Bot, event: GroupMessageEvent, target: MsgTarget) -> bool:
     """检查基本权限和状态"""
     user_id_str = event.get_user_id()
     group_id = event.group_id
     bot_id = bot.self_id
-    plugin_name = "summary_group"  # 或特定的设置命令名称
+    plugin_name = "summary_group"
 
     try:
         if not await BotConsole.get_bot_status(bot_id):
@@ -36,7 +36,6 @@ async def _check_perms(bot: Bot, event: GroupMessageEvent, target: MsgTarget) ->
             return False
         if await BanConsole.is_ban(user_id_str, group_id):
             return False
-        # 检查是否为管理员或超级用户
         is_admin = await admin_check("summary_group", "SUMMARY_ADMIN_LEVEL")(bot, event)
         is_superuser = await SUPERUSER(bot, event)
         if not (is_admin or is_superuser):
@@ -44,12 +43,16 @@ async def _check_perms(bot: Bot, event: GroupMessageEvent, target: MsgTarget) ->
             return False
         return True
     except Exception as e:
-        logger.error(f"检查分群设置权限时出错: {e}", command="分群设置", session=user_id_str, group_id=group_id, e=e)
+        logger.error(
+            f"检查分群设置权限时出错: {e}", command="分群设置", session=user_id_str, group_id=group_id, e=e
+        )
         await UniMessage.text("检查权限时出错，请联系管理员。").send(target)
         return False
 
 
-async def handle_set_group_model(bot: Bot, event: GroupMessageEvent, target: MsgTarget, provider_model_name: Match[str]):
+async def handle_set_group_model(
+    bot: Bot, event: GroupMessageEvent, target: MsgTarget, provider_model_name: Match[str]
+):
     """处理设置本群默认模型"""
     if not await _check_perms(bot, event, target):
         return
@@ -90,6 +93,7 @@ async def handle_set_group_style(bot: Bot, event: GroupMessageEvent, target: Msg
     else:
         await UniMessage.text("设置失败，请检查日志。").send(target)
 
+
 async def handle_remove_group_model(bot: Bot, event: GroupMessageEvent, target: MsgTarget):
     """处理移除本群默认模型"""
     if not await _check_perms(bot, event, target):
@@ -100,7 +104,6 @@ async def handle_remove_group_model(bot: Bot, event: GroupMessageEvent, target: 
         logger.info(f"群 {group_id_str} 移除了默认模型设置 by {event.get_user_id()}")
         await UniMessage.text("已移除本群的默认总结模型设置，将使用全局设置。").send(target)
     else:
-        # remove_group_setting 在 key 不存在时也返回 True，所以这里理论上不会执行
         await UniMessage.text("移除失败或本群未设置默认模型。").send(target)
 
 
@@ -117,8 +120,6 @@ async def handle_remove_group_style(bot: Bot, event: GroupMessageEvent, target: 
         await UniMessage.text("移除失败或本群未设置默认风格。").send(target)
 
 
-# --- 辅助函数 ---
-
 async def _check_group_status(bot: Bot, target: MsgTarget, group_id: str) -> bool:
     """检查 Bot 和目标群组的基本状态（是否屏蔽插件、是否被ban）"""
     try:
@@ -126,15 +127,14 @@ async def _check_group_status(bot: Bot, target: MsgTarget, group_id: str) -> boo
             logger.debug(f"Bot {bot.self_id} 未激活")
             return False
         if await BotConsole.is_block_plugin(bot.self_id, "summary_group"):
-             logger.debug(f"Bot {bot.self_id} 屏蔽了 summary_group")
-             return False
+            logger.debug(f"Bot {bot.self_id} 屏蔽了 summary_group")
+            return False
         if await GroupConsole.is_block_plugin(group_id, "summary_group"):
-             msg = "群聊总结功能在本群已被禁用。"
-             # 只有当回复目标就是该群时才发送提示
-             if target.id == group_id and not target.private:
-                 await UniMessage.text(msg).send(target)
-             logger.debug(f"群 {group_id} 屏蔽了 summary_group")
-             return False
+            msg = "群聊总结功能在本群已被禁用。"
+            if target.id == group_id and not target.private:
+                await UniMessage.text(msg).send(target)
+            logger.debug(f"群 {group_id} 屏蔽了 summary_group")
+            return False
         if await BanConsole.is_ban(None, group_id):
             logger.debug(f"群 {group_id} 被封禁")
             return False
@@ -147,13 +147,14 @@ async def _check_group_status(bot: Bot, target: MsgTarget, group_id: str) -> boo
 
 async def _switch_global_model(target: MsgTarget, provider_model_name: str, operator_id: str):
     """内部函数：切换全局模型"""
-    success, message = handle_switch_model(provider_model_name) # 验证模型有效性
+    success, message = handle_switch_model(provider_model_name)
     if success:
         Config.set_config("summary_group", "CURRENT_ACTIVE_MODEL_NAME", provider_model_name, auto_save=True)
         logger.info(f"全局 AI 模型已切换为: {provider_model_name} by {operator_id}")
         await UniMessage.text(f"已成功切换全局激活模型为: {provider_model_name}").send(target)
     else:
-        await UniMessage.text(message).send(target) # 发送验证失败的消息
+        await UniMessage.text(message).send(target)
+
 
 async def _set_group_model(target: MsgTarget, group_id: str, model_name_str: str, operator_id: str):
     """内部函数：设置分群模型"""
@@ -171,6 +172,7 @@ async def _set_group_model(target: MsgTarget, group_id: str, model_name_str: str
     else:
         await UniMessage.text(f"错误：找不到模型 '{model_name_str}'，请检查名称是否正确。").send(target)
 
+
 async def _remove_group_model(target: MsgTarget, group_id: str, operator_id: str):
     """内部函数：移除分群模型设置"""
     if store.remove_group_setting(group_id, "default_model_name"):
@@ -178,6 +180,7 @@ async def _remove_group_model(target: MsgTarget, group_id: str, operator_id: str
         await UniMessage.text(f"已移除群聊 {group_id} 的默认总结模型设置，将使用全局设置。").send(target)
     else:
         await UniMessage.text(f"移除失败或群聊 {group_id} 未设置默认模型。").send(target)
+
 
 async def _set_group_style(target: MsgTarget, group_id: str, style_name: str, operator_id: str):
     """内部函数：设置分群风格"""
@@ -192,6 +195,7 @@ async def _set_group_style(target: MsgTarget, group_id: str, style_name: str, op
     else:
         await UniMessage.text("设置失败，请检查日志。").send(target)
 
+
 async def _remove_group_style(target: MsgTarget, group_id: str, operator_id: str):
     """内部函数：移除分群风格设置"""
     if store.remove_group_setting(group_id, "default_style"):
@@ -200,9 +204,11 @@ async def _remove_group_style(target: MsgTarget, group_id: str, operator_id: str
     else:
         await UniMessage.text(f"移除失败或群聊 {group_id} 未设置默认风格。").send(target)
 
-async def _show_settings(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget, group_id_to_show: str):
+
+async def _show_settings(
+    bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget, group_id_to_show: str
+):
     """内部函数：显示指定群组的设置"""
-    # 注意：这里的 bot 和 event 参数只是为了保持函数签名一致，实际上并不使用
     settings = store.get_all_group_settings(group_id_to_show)
     global_active_model = Config.get_config("summary_group", "CURRENT_ACTIVE_MODEL_NAME")
 
@@ -224,14 +230,12 @@ async def _show_settings(bot: Bot, event: GroupMessageEvent | PrivateMessageEven
         message += "- 未设置特定配置，将使用全局设置。\n"
 
     message += f"\n当前全局激活模型: {global_active_model or '未配置'}"
-    # 可以考虑显示全局默认风格（如果需要）
 
     await UniMessage.text(message.strip()).send(target)
 
 
 async def handle_show_group_settings(bot: Bot, event: GroupMessageEvent, target: MsgTarget):
     """处理查看本群设置"""
-    # 权限检查可以放宽，普通成员也能看
     user_id_str = event.get_user_id()
     group_id_str = str(event.group_id)
     bot_id = bot.self_id
@@ -246,16 +250,23 @@ async def handle_show_group_settings(bot: Bot, event: GroupMessageEvent, target:
             return
         if await BanConsole.is_ban(None, int(group_id_str)):
             return
-        # if await BanConsole.is_ban(user_id_str, int(group_id_str)): # 查看设置通常不需要检查用户ban
     except Exception as e:
-        logger.error(f"检查查看分群设置权限时出错: {e}", command="分群设置查看", session=user_id_str, group_id=group_id_str, e=e)
+        logger.error(
+            f"检查查看分群设置权限时出错: {e}",
+            command="分群设置查看",
+            session=user_id_str,
+            group_id=group_id_str,
+            e=e,
+        )
         await UniMessage.text("检查权限时出错。").send(target)
         return
 
     await _show_settings(bot, event, target, group_id_str)
 
 
-async def handle_summary_config(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget, cmd_result: CommandResult):
+async def handle_summary_config(
+    bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget, cmd_result: CommandResult
+):
     """处理 '/总结配置' 命令"""
     user_id_str = event.get_user_id()
     originating_group_id = event.group_id if isinstance(event, GroupMessageEvent) else None
@@ -264,118 +275,100 @@ async def handle_summary_config(bot: Bot, event: GroupMessageEvent | PrivateMess
     arp: Arparma | None = cmd_result.result
 
     if not arp or not arp.matched:
-        # 默认或错误时显示当前群设置（如果不在群聊中，提示错误）
         if originating_group_id:
             await _show_settings(bot, event, target, str(originating_group_id))
         else:
-            await UniMessage.text("请在群聊中使用此命令查看或配置群组设置，或使用 '总结配置 模型 列表/切换'。").send(target)
+            await UniMessage.text(
+                "请在群聊中使用此命令查看或配置群组设置，或使用 '总结配置 模型 列表/切换'。"
+            ).send(target)
         return
 
-    # --- 解析全局 -g 参数 ---
     target_group_id_from_g: int | None = arp.query[int]("g.target_group_id")
     if target_group_id_from_g and not is_superuser:
         await UniMessage.text("只有超级用户才能使用 -g 参数指定群组。").send(target)
         return
 
-    # --- 确定操作目标群组 ID ---
-    # 优先使用 -g 参数指定的群组（如果用户是 Superuser）
-    # 否则使用命令发起的群组（如果存在）
-    # 对于全局操作（列表、切换），target_group_id 可以是 None
     target_group_id_str: str | None = None
     if target_group_id_from_g:
         target_group_id_str = str(target_group_id_from_g)
     elif originating_group_id:
         target_group_id_str = str(originating_group_id)
-    # else: target_group_id_str is None (私聊且未使用 -g)
 
-    # --- 模型子命令处理 ---
-    if model_cmd := arp.query[Arparma]("模型"):
-        if model_cmd.find("列表"):
-            # 列出模型，无需权限
+    if arp.find("模型"):
+        if arp.find("模型.列表"):
             current_active = Config.get_config("summary_group", "CURRENT_ACTIVE_MODEL_NAME")
-            list_msg = handle_list_models(current_active) # 使用 model_control 中的函数
+            list_msg = handle_list_models(current_active)
             await UniMessage.text(list_msg).send(target)
 
-        elif switch_cmd := model_cmd.query[Arparma]("切换"):
-            # 切换全局模型，需要 Superuser
+        elif arp.find("模型.切换"):
             if not is_superuser:
                 await UniMessage.text("只有超级用户才能切换全局使用的模型。").send(target)
                 return
-            provider_model = switch_cmd.query[str]("provider_model")
+            provider_model = arp.query[str]("模型.切换.provider_model")
             await _switch_global_model(target, provider_model, user_id_str)
 
-        elif set_cmd := model_cmd.query[Arparma]("设置"):
-            # 设置分群模型，需要 Superuser
+        elif arp.find("模型.设置"):
             if not is_superuser:
                 await UniMessage.text("只有超级用户才能设置群组的默认模型。").send(target)
                 return
             if not target_group_id_str:
-                 await UniMessage.text("请在群内使用或使用 -g <群号> 指定要设置的群组。").send(target)
-                 return
-            # --- 权限检查（Bot、群组状态等） ---
+                await UniMessage.text("请在群内使用或使用 -g <群号> 指定要设置的群组。").send(target)
+                return
             if not await _check_group_status(bot, target, target_group_id_str):
-                 return
-            provider_model = set_cmd.query[str]("provider_model")
+                return
+            provider_model = arp.query[str]("模型.设置.provider_model")
             await _set_group_model(target, target_group_id_str, provider_model, user_id_str)
 
-        elif model_cmd.find("移除"):
-            # 移除分群模型，需要 Superuser
+        elif arp.find("模型.移除"):
             if not is_superuser:
                 await UniMessage.text("只有超级用户才能移除群组的默认模型设置。").send(target)
                 return
             if not target_group_id_str:
-                 await UniMessage.text("请在群内使用或使用 -g <群号> 指定要移除设置的群组。").send(target)
-                 return
-            # --- 权限检查 ---
+                await UniMessage.text("请在群内使用或使用 -g <群号> 指定要移除设置的群组。").send(target)
+                return
             if not await _check_group_status(bot, target, target_group_id_str):
-                 return
+                return
             await _remove_group_model(target, target_group_id_str, user_id_str)
 
         else:
-             await UniMessage.text("模型操作无效，请使用 '列表', '切换', '设置', '移除'。").send(target)
+            await UniMessage.text("模型操作无效，请使用 '列表', '切换', '设置', '移除'。").send(target)
 
-    # --- 风格子命令处理 ---
-    elif style_cmd := arp.query[Arparma]("风格"):
-        # 设置和移除都需要 Admin 或 Superuser，且需要目标群组
+    elif arp.find("风格"):
         is_admin = False
-        if originating_group_id: # 检查发起群的管理员权限
+        if originating_group_id:
             is_admin = await admin_check("summary_group", "SUMMARY_ADMIN_LEVEL")(bot, event)
 
         if not target_group_id_str:
             await UniMessage.text("请在群内使用或使用 -g <群号> 指定要操作的群组。").send(target)
             return
-        # 检查权限
         if not (is_admin or is_superuser):
             await UniMessage.text("需要管理员权限才能设置或移除本群风格。").send(target)
             return
-        # 检查目标群组状态
         if not await _check_group_status(bot, target, target_group_id_str):
-             return
+            return
 
-        if set_cmd := style_cmd.query[Arparma]("设置"):
-            style_name = set_cmd.query[str]("style_name")
+        if arp.find("风格.设置"):
+            style_name = arp.query[str]("风格.设置.style_name")
             await _set_group_style(target, target_group_id_str, style_name, user_id_str)
-        elif style_cmd.find("移除"):
+        elif arp.find("风格.移除"):
             await _remove_group_style(target, target_group_id_str, user_id_str)
         else:
-             await UniMessage.text("风格操作无效，请使用 '设置', '移除'。").send(target)
+            await UniMessage.text("风格操作无效，请使用 '设置', '移除'。").send(target)
 
-    # --- 查看子命令处理 ---
     elif arp.find("查看"):
         if not target_group_id_str:
-             await UniMessage.text("请在群内使用或使用 -g <群号> 指定要查看的群组。").send(target)
-             return
-        # 检查目标群组状态
+            await UniMessage.text("请在群内使用或使用 -g <群号> 指定要查看的群组。").send(target)
+            return
         if not await _check_group_status(bot, target, target_group_id_str):
-             return
-        await _show_settings(bot, event, target, target_group_id_str) # 调用查看逻辑
+            return
+        await _show_settings(bot, event, target, target_group_id_str)
 
     else:
-        # 主命令不带子命令，且带了 -g 参数 (Superuser)
         if target_group_id_str:
             if not await _check_group_status(bot, target, target_group_id_str):
                 return
             await _show_settings(bot, event, target, target_group_id_str)
-        # 如果在群聊中且不带 -g，已经在函数开头处理了
-        elif not originating_group_id: # 在私聊中，不带 -g 且无子命令
-             await UniMessage.text("无效命令。请使用 '总结配置 查看/模型/风格...' 或在群聊中使用。").send(target)
+        elif not originating_group_id:
+            await UniMessage.text("无效命令。请使用 '总结配置 查看/模型/风格...' 或在群聊中使用。").send(
+                target
+            )

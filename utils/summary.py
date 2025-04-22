@@ -8,10 +8,9 @@ from zhenxun.services.log import logger
 
 base_config = Config.get("summary_group")
 
-from ..model import ModelException, detect_model
+from ..model import ModelException
 from ..store import Store
 
-# 创建 Store 实例
 store = Store()
 
 md_to_pic = None
@@ -41,17 +40,16 @@ async def messages_summary(
     messages: list[dict[str, str]],
     content: str | None = None,
     target_user_names: list[str] | None = None,
-    style: str | None = None, # 这个 style 是命令传入的
+    style: str | None = None,
 ) -> str:
     if not messages:
         logger.warning("没有足够的聊天记录可供总结", command="messages_summary")
         return "没有足够的聊天记录可供总结。"
 
     prompt_parts = []
-    group_id = target.id if not target.private else None # 获取 group_id
+    group_id = target.id if not target.private else None
 
-    # --- 决定最终使用的 style ---
-    final_style = style # 优先使用命令传入的 style
+    final_style = style
     if not final_style and group_id:
         group_default_style = store.get_group_setting(str(group_id), "default_style")
         if group_default_style:
@@ -90,25 +88,25 @@ async def messages_summary(
 
     logger.debug(f"最终构建的 Prompt: {final_prompt}", command="messages_summary")
 
-    # --- 决定最终使用的模型名称 ---
-    final_model_name_str = Config.get_config("summary_group", "CURRENT_ACTIVE_MODEL_NAME") # 全局激活
+    final_model_name_str = Config.get_config("summary_group", "CURRENT_ACTIVE_MODEL_NAME")
     if group_id:
         group_specific_model = store.get_group_setting(str(group_id), "default_model_name")
         if group_specific_model:
-            # 验证模型是否存在
-            from .handlers.model_control import parse_provider_model_string, find_model
+            from ..handlers.model_control import find_model, parse_provider_model_string
+
             prov_name, mod_name = parse_provider_model_string(group_specific_model)
             if prov_name and mod_name and find_model(prov_name, mod_name):
-                 final_model_name_str = group_specific_model
-                 logger.debug(f"群聊 {group_id} 使用特定模型: {final_model_name_str}")
+                final_model_name_str = group_specific_model
+                logger.debug(f"群聊 {group_id} 使用特定模型: {final_model_name_str}")
             else:
-                 logger.warning(f"群聊 {group_id} 配置的特定模型 '{group_specific_model}' 无效，将使用全局模型 '{final_model_name_str}'。")
+                logger.warning(
+                    f"群聊 {group_id} 配置的特定模型 '{group_specific_model}' 无效，将使用全局模型 '{final_model_name_str}'。"
+                )
 
-    # --- 定义调用模型的内部函数 ---
     async def invoke_model():
         try:
-            # --- 使用新的函数获取模型实例 ---
-            from .handlers.model_control import get_model_instance_by_name
+            from ..handlers.model_control import get_model_instance_by_name
+
             model = get_model_instance_by_name(final_model_name_str)
             return await model.summary_history(messages, final_prompt)
         except ModelException:
