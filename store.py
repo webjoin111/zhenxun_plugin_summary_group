@@ -3,7 +3,7 @@ import copy
 import json
 from pathlib import Path
 import time
-from typing import Any, Optional, TypedDict
+from typing import Any, TypedDict
 
 from nonebot import logger
 
@@ -14,37 +14,49 @@ class ScheduleData(TypedDict):
     hour: int
     minute: int
     least_message_count: int
-    style: Optional[str]
-    created_at: Optional[str]
-    updated_at: Optional[str]
+    style: str | None
+    created_at: str | None
+    updated_at: str | None
 
 
 class GroupSettingData(TypedDict, total=False):
-    default_model_name: Optional[str]
-    default_style: Optional[str]
-    updated_at: Optional[str]
+    default_model_name: str | None
+    default_style: str | None
+    updated_at: str | None
 
 
 class Store:
-    def __init__(self, file_path: str | Path | None = None):
-        plugin_data_dir = DATA_PATH / "summary_group"
-        plugin_data_dir.mkdir(parents=True, exist_ok=True)  # 确保目录存在
+    _instance = None
+    _initialized = False
 
-        # --- 定时任务设置文件路径 ---
+    def __new__(cls, file_path: str | Path | None = None):
+        if cls._instance is None:
+            cls._instance = super(Store, cls).__new__(cls)
+        return cls._instance
+
+    def __init__(self, file_path: str | Path | None = None):
+        if Store._initialized:
+            return
+
+        plugin_data_dir = DATA_PATH / "summary_group"
+        plugin_data_dir.mkdir(parents=True, exist_ok=True)
+
         if file_path:
             self.schedule_file_path = Path(file_path)
         else:
             default_schedule_filename = "summary_settings.json"
             self.schedule_file_path = plugin_data_dir / default_schedule_filename
 
-        # --- 新增分群设置文件路径 ---
         self.group_settings_file_path = plugin_data_dir / "group_specific_settings.json"
 
-        self._lock = asyncio.Lock()  # 共用一个锁，简化处理
+        self._lock = asyncio.Lock()
 
-        # --- 加载数据 ---
         self.schedule_data: dict[str, ScheduleData] = self._load_json_data(self.schedule_file_path)
-        self.group_settings_data: dict[str, GroupSettingData] = self._load_json_data(self.group_settings_file_path)
+        self.group_settings_data: dict[str, GroupSettingData] = self._load_json_data(
+            self.group_settings_file_path
+        )
+
+        Store._initialized = True
 
     def _load_json_data(self, path: Path) -> dict:
         """通用加载 JSON 文件数据"""
@@ -60,7 +72,6 @@ class Store:
                         return data
                     else:
                         logger.error(f"存储文件顶层结构不是字典: {path}")
-                        # 可以选择备份错误文件
                         self._backup_corrupted_file(path)
                         return {}
             return {}
@@ -92,13 +103,12 @@ class Store:
                     logger.error(f"尝试保存非字典类型的数据到 {path}")
                     return False
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            # 原子替换
             temp_path.replace(path)
             return True
         except TypeError as e:
             logger.error(f"保存存储数据失败 ({path}): 数据无法序列化为 JSON - {e}", e=e)
             if temp_path.exists():
-                temp_path.unlink() # 清理临时文件
+                temp_path.unlink()
             return False
         except Exception as e:
             logger.error(f"保存存储数据失败 ({path}): {e}", e=e)
@@ -106,19 +116,16 @@ class Store:
                 temp_path.unlink()
             return False
 
-    # --- 定时任务相关方法 (保持不变，操作 schedule_data) ---
-    def set(self, group_id: int, data: dict) -> bool: # 注意：此方法仅用于定时任务设置
+    def set(self, group_id: int, data: dict) -> bool:
         group_id_str = str(group_id)
-        # ... (原有的验证逻辑，确保 ScheduleData 的字段) ...
         try:
-            # 验证 ScheduleData 的必需字段
             required_fields = {"hour": int, "minute": int, "least_message_count": int}
             optional_fields = {"style": (str, type(None))}
             validated_data = {}
 
             if not isinstance(data, dict):
-                 logger.warning(f"[定时任务] 尝试为群 {group_id} 设置非字典类型的数据")
-                 return False
+                logger.warning(f"[定时任务] 尝试为群 {group_id} 设置非字典类型的数据")
+                return False
 
             for field, field_type in required_fields.items():
                 if field not in data:
@@ -131,30 +138,31 @@ class Store:
             for field, allowed_types in optional_fields.items():
                 if field in data:
                     if isinstance(data[field], allowed_types):
-                         validated_data[field] = data[field]
-                    elif data[field] is None and type(None) in allowed_types: # 显式处理 None
-                         validated_data[field] = None
+                        validated_data[field] = data[field]
+                    elif data[field] is None and type(None) in allowed_types:
+                        validated_data[field] = None
                     else:
-                         logger.warning(f"[定时任务] 为群 {group_id} 设置的数据字段 '{field}' 类型错误")
+                        logger.warning(f"[定时任务] 为群 {group_id} 设置的数据字段 '{field}' 类型错误")
 
             if not all(key in validated_data for key in required_fields):
                 logger.error(f"[定时任务] 群 {group_id} 缺少必要的配置字段，无法保存")
                 return False
 
             from datetime import datetime
+
             now_iso = datetime.now().isoformat()
             if group_id_str not in self.schedule_data:
-                 if "created_at" not in validated_data:
-                     validated_data["created_at"] = now_iso
+                if "created_at" not in validated_data:
+                    validated_data["created_at"] = now_iso
             validated_data["updated_at"] = now_iso
 
-            self.schedule_data[group_id_str] = validated_data # type: ignore
+            self.schedule_data[group_id_str] = validated_data
             return self._save_json_data(self.schedule_data, self.schedule_file_path)
         except Exception as e:
             logger.error(f"[定时任务] 设置群 {group_id} 配置失败: {e}", e=e)
             return False
 
-    def get(self, group_id: int) -> Optional[ScheduleData]:
+    def get(self, group_id: int) -> ScheduleData | None:
         """获取指定群组的定时任务设置"""
         return self.schedule_data.get(str(group_id))
 
@@ -165,7 +173,7 @@ class Store:
             if group_id_str in self.schedule_data:
                 del self.schedule_data[group_id_str]
                 return self._save_json_data(self.schedule_data, self.schedule_file_path)
-            return True # 不存在也算成功移除
+            return True
         except Exception as e:
             logger.error(f"移除群 {group_id} 定时任务配置失败: {e}", e=e)
             return False
@@ -183,7 +191,7 @@ class Store:
         """获取所有设置了定时任务的群组ID列表"""
         return list(self.schedule_data.keys())
 
-    def cleanup_invalid_groups(self) -> int: # 只清理定时任务的无效群组
+    def cleanup_invalid_groups(self) -> int:
         """清理定时任务设置中的无效群组ID"""
         invalid_groups = [key for key in self.schedule_data if not key.isdigit()]
         if not invalid_groups:
@@ -199,73 +207,87 @@ class Store:
             logger.error("清理无效定时任务群配置后保存失败")
         return cleaned_count
 
-    # --- 新增分群配置相关方法 (操作 group_settings_data) ---
     def get_group_setting(self, group_id: str, key: str, default: Any = None) -> Any:
         """获取指定群组的特定设置项"""
         group_data = self.group_settings_data.get(group_id)
         if group_data and key in group_data:
-            return group_data[key] # type: ignore
+            return group_data[key]
         return default
 
     def set_group_setting(self, group_id: str, key: str, value: Any) -> bool:
         """设置指定群组的特定设置项"""
         if not isinstance(group_id, str) or not group_id.isdigit():
-             logger.warning(f"尝试为无效的 group_id '{group_id}' 设置分群配置")
-             return False
-        if key not in GroupSettingData.__annotations__: # 检查 key 是否有效
-             logger.warning(f"尝试设置无效的分群配置项 '{key}' for group {group_id}")
-             return False
+            logger.warning(f"尝试为无效的 group_id '{group_id}' 设置分群配置")
+            return False
+        if key not in GroupSettingData.__annotations__:
+            logger.warning(f"尝试设置无效的分群配置项 '{key}' for group {group_id}")
+            return False
 
         if group_id not in self.group_settings_data:
             self.group_settings_data[group_id] = {}
 
         from datetime import datetime
-        now_iso = datetime.now().isoformat()
-        self.group_settings_data[group_id][key] = value # type: ignore
-        self.group_settings_data[group_id]["updated_at"] = now_iso # 更新时间戳
 
-        return self._save_json_data(self.group_settings_data, self.group_settings_file_path)
+        now_iso = datetime.now().isoformat()
+        self.group_settings_data[group_id][key] = value
+        self.group_settings_data[group_id]["updated_at"] = now_iso
+
+        result = self._save_json_data(self.group_settings_data, self.group_settings_file_path)
+
+        if result:
+            logger.debug(f"群 {group_id} 的设置项 '{key}' 已更新为: {value}")
+        else:
+            logger.error(f"群 {group_id} 的设置项 '{key}' 更新失败")
+
+        return result
 
     def remove_group_setting(self, group_id: str, key: str) -> bool:
         """移除指定群组的特定设置项"""
         if group_id in self.group_settings_data and key in self.group_settings_data[group_id]:
-            del self.group_settings_data[group_id][key] # type: ignore
-            # 如果移除后该群组没有其他设置了，可以选择移除整个群组条目
-            if not self.group_settings_data[group_id] or (len(self.group_settings_data[group_id]) == 1 and "updated_at" in self.group_settings_data[group_id]):
-                 del self.group_settings_data[group_id]
+            old_value = self.group_settings_data[group_id].get(key)
+
+            del self.group_settings_data[group_id][key]
+            if not self.group_settings_data[group_id] or (
+                len(self.group_settings_data[group_id]) == 1
+                and "updated_at" in self.group_settings_data[group_id]
+            ):
+                del self.group_settings_data[group_id]
             else:
-                 # 否则只更新时间戳
-                 from datetime import datetime
-                 now_iso = datetime.now().isoformat()
-                 self.group_settings_data[group_id]["updated_at"] = now_iso
+                from datetime import datetime
 
-            return self._save_json_data(self.group_settings_data, self.group_settings_file_path)
-        return True # 不存在也算成功移除
+                now_iso = datetime.now().isoformat()
+                self.group_settings_data[group_id]["updated_at"] = now_iso
 
-    def get_all_group_settings(self, group_id: str) -> Optional[GroupSettingData]:
-         """获取指定群组的所有设置"""
-         return self.group_settings_data.get(group_id)
+            result = self._save_json_data(self.group_settings_data, self.group_settings_file_path)
 
-    # --- 事务方法 (可以考虑是否需要对两个文件都加锁) ---
+            if result:
+                logger.debug(f"群 {group_id} 的设置项 '{key}' (原值: {old_value}) 已移除")
+            else:
+                logger.error(f"群 {group_id} 的设置项 '{key}' 移除失败")
+
+            return result
+        return True
+
+    def get_all_group_settings(self, group_id: str) -> GroupSettingData | None:
+        """获取指定群组的所有设置"""
+        return self.group_settings_data.get(group_id)
+
     async def transaction(self, operation_func):
         async with self._lock:
-            # 需要同时备份 schedule_data 和 group_settings_data
             schedule_backup = copy.deepcopy(self.schedule_data)
             group_settings_backup = copy.deepcopy(self.group_settings_data)
             try:
-                result = await operation_func() # 假设操作函数是异步的
-                # 需要同时保存两个文件
+                result = await operation_func()
                 save1_ok = self._save_json_data(self.schedule_data, self.schedule_file_path)
                 save2_ok = self._save_json_data(self.group_settings_data, self.group_settings_file_path)
                 if not (save1_ok and save2_ok):
                     logger.error("事务操作中保存数据失败，回滚更改")
                     self.schedule_data = schedule_backup
                     self.group_settings_data = group_settings_backup
-                    # 可能需要尝试恢复文件
                     return False
-                return result # 返回操作结果
+                return result
             except Exception as e:
                 logger.error(f"事务操作失败，回滚更改: {e}", e=e)
                 self.schedule_data = schedule_backup
                 self.group_settings_data = group_settings_backup
-                return False # 或者 re-raise e
+                return False
