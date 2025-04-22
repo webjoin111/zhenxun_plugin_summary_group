@@ -5,11 +5,14 @@ from nonebot.permission import SUPERUSER
 from nonebot_plugin_alconna import At, CommandResult, Match, Text
 from nonebot_plugin_alconna.uniseg import MsgTarget, UniMessage
 
+from zhenxun.configs.config import Config
 from zhenxun.models.ban_console import BanConsole
 from zhenxun.models.bot_console import BotConsole
 from zhenxun.models.group_console import GroupConsole
 from zhenxun.models.statistics import Statistics
 from zhenxun.services.log import logger
+
+base_config = Config.get("summary_group")
 
 from .. import summary_cd_limiter
 from ..utils.message import (
