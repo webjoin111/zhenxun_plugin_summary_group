@@ -6,10 +6,8 @@ from zhenxun.configs.config import Config
 from zhenxun.services.log import logger
 from zhenxun.utils.platform import PlatformUtils
 
+# --- 直接获取基础配置 ---
 base_config = Config.get("summary_group")
-if base_config is None:
-    logger.error("[utils/message.py] 无法加载 'summary_group' 配置!")
-    base_config = {}
 
 from .health import with_retry
 from .scheduler import SummaryException
@@ -36,12 +34,12 @@ async def get_raw_group_msg_history(bot: Bot, group_id: int, count: int) -> list
             )
             return raw_messages
 
-        max_retries = base_config.get("MAX_RETRIES")
-        retry_delay = base_config.get("RETRY_DELAY")
+        max_retries = base_config.get("MAX_RETRIES", 2)
+        retry_delay = base_config.get("RETRY_DELAY", 1)
         return await with_retry(
             fetch,
-            max_retries=max_retries if max_retries is not None else 2,
-            retry_delay=retry_delay if retry_delay is not None else 1,
+            max_retries=max_retries,
+            retry_delay=retry_delay,
         )
     except Exception as e:
         logger.error(
@@ -54,7 +52,9 @@ async def get_raw_group_msg_history(bot: Bot, group_id: int, count: int) -> list
         raise MessageFetchException(f"获取原始消息历史失败: {e!s}")
 
 
-async def process_message(messages: list, bot: Bot, group_id: int) -> tuple[list[dict[str, str]], dict[str, str]]:
+async def process_message(
+    messages: list, bot: Bot, group_id: int
+) -> tuple[list[dict[str, str]], dict[str, str]]:
     logger.debug(
         f"开始处理群 {group_id} 的 {len(messages)} 条原始消息",
         command="消息处理",
@@ -62,6 +62,10 @@ async def process_message(messages: list, bot: Bot, group_id: int) -> tuple[list
     try:
         if not messages:
             return [], {}
+
+        # 获取是否排除Bot消息的配置
+        exclude_bot = base_config.get("EXCLUDE_BOT_MESSAGES", False)
+        bot_self_id = bot.self_id
 
         user_info_cache: dict[str, str] = {}
         user_ids_to_fetch = {str(msg.get("user_id")) for msg in messages if msg.get("user_id")}
@@ -75,15 +79,25 @@ async def process_message(messages: list, bot: Bot, group_id: int) -> tuple[list
                         sender_name = user_data.card or user_data.name or sender_name
                     user_info_cache[user_id_str] = sender_name
                 except Exception as e:
-                    logger.warning(f"获取用户 {user_id_str} 信息失败: {e}. 使用默认值", group_id=group_id, e=e)
-                    user_info_cache[user_id_str] = user_info_cache.get(user_id_str, f"用户_{user_id_str[-4:]}")
+                    logger.warning(
+                        f"获取用户 {user_id_str} 信息失败: {e}. 使用默认值", group_id=group_id, e=e
+                    )
+                    user_info_cache[user_id_str] = user_info_cache.get(
+                        user_id_str, f"用户_{user_id_str[-4:]}"
+                    )
 
         processed_log: list[dict[str, str]] = []
         for msg in messages:
             user_id = msg.get("user_id")
             if not user_id:
                 continue
+
+            # 排除Bot自身消息
             user_id_str = str(user_id)
+            if exclude_bot and user_id_str == bot_self_id:
+                logger.debug(f"排除Bot({bot_self_id})消息", command="消息处理", group_id=group_id)
+                continue
+
             sender_name = user_info_cache.get(user_id_str, f"用户_{user_id_str[-4:]}")
 
             raw_segments = msg.get("message", [])
@@ -115,12 +129,10 @@ async def process_message(messages: list, bot: Bot, group_id: int) -> tuple[list
 
             if text_segments:
                 message_content = "".join(text_segments)
-                processed_log.append(
-                    {"name": sender_name, "content": message_content}
-                )
+                processed_log.append({"name": sender_name, "content": message_content})
 
         logger.debug(
-            f"消息处理完成，生成 {len(processed_log)} 条处理记录",
+            f"消息处理完成，生成 {len(processed_log)} 条处理记录 (已应用Bot排除设置: {exclude_bot})",
             group_id=group_id,
         )
         return processed_log, user_info_cache
@@ -153,7 +165,9 @@ async def get_group_msg_history(
 
             filtered_messages = raw_messages
             if target_user_ids:
-                filtered_messages = [msg for msg in raw_messages if str(msg.get("user_id")) in target_user_ids]
+                filtered_messages = [
+                    msg for msg in raw_messages if str(msg.get("user_id")) in target_user_ids
+                ]
                 logger.debug(
                     f"过滤后剩余 {len(filtered_messages)} 条消息 (来自用户: {target_user_ids})",
                     command="get_group_msg_history",
@@ -182,12 +196,12 @@ async def get_group_msg_history(
             raise MessageFetchException(f"获取或处理消息历史失败: {e!s}")
 
     try:
-        max_retries = base_config.get("MAX_RETRIES")
-        retry_delay = base_config.get("RETRY_DELAY")
+        max_retries = base_config.get("MAX_RETRIES", 2)
+        retry_delay = base_config.get("RETRY_DELAY", 1)
         return await with_retry(
             fetch_messages,
-            max_retries=max_retries if max_retries is not None else 2,
-            retry_delay=retry_delay if retry_delay is not None else 1,
+            max_retries=max_retries,
+            retry_delay=retry_delay,
         )
     except MessageFetchException:
         raise
@@ -207,13 +221,19 @@ async def check_message_count(messages: list[dict[str, Any]], min_count: int | N
             return False
 
         if min_count is None:
+            # --- 使用 base_config.get ---
             min_len = base_config.get("SUMMARY_MIN_LENGTH")
             max_len = base_config.get("SUMMARY_MAX_LENGTH")
+
             if min_len is None or max_len is None:
                 logger.warning("无法从配置获取 SUMMARY_MIN/MAX_LENGTH，使用默认检查值 (50)")
                 min_count = 50
             else:
-                min_count = min(min_len, max_len)
+                try:
+                    min_count = min(int(min_len), int(max_len))
+                except (ValueError, TypeError):
+                    logger.warning("配置 SUMMARY_MIN/MAX_LENGTH 值无效，使用默认检查值 (50)")
+                    min_count = 50
 
         return len(messages) >= min_count
     except Exception as e:

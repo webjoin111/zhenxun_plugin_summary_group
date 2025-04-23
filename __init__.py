@@ -10,13 +10,21 @@ from zhenxun.configs.config import Config
 from zhenxun.configs.utils import PluginCdBlock, PluginExtraData, RegisterConfig
 from zhenxun.services.log import logger
 from zhenxun.utils.enum import LimitWatchType, PluginLimitType
-from zhenxun.utils.rules import admin_check, ensure_group  # noqa: F401
+from zhenxun.utils.rules import admin_check
 from zhenxun.utils.utils import FreqLimiter
 
 from .utils.scheduler import set_scheduler
 
 require("nonebot_plugin_alconna")
-from arclet.alconna import Alconna, Args, CommandMeta, Field, MultiVar, Option
+from arclet.alconna import (
+    Alconna,
+    Args,
+    CommandMeta,
+    Field,
+    MultiVar,
+    Option,
+    Subcommand,
+)
 from nonebot_plugin_alconna import (
     At,
     CommandResult,
@@ -29,19 +37,13 @@ require("nonebot_plugin_apscheduler")
 
 
 base_config = Config.get("summary_group")
-if base_config is None:
-    logger.error("[__init__.py] 无法加载 'summary_group' 配置!")
-    base_config = {}
 
 
 try:
-    cooldown_seconds = base_config.get("SUMMARY_COOL_DOWN")
+    cooldown_seconds = base_config.get("SUMMARY_COOL_DOWN", 60)
     if not isinstance(cooldown_seconds, int) or cooldown_seconds < 0:
         logger.warning("配置项 SUMMARY_COOL_DOWN 值无效，使用 60")
         cooldown_seconds = 60
-except TypeError:
-    logger.warning("配置项 SUMMARY_COOL_DOWN 未找到，使用 60")
-    cooldown_seconds = 60
 except Exception as e:
     logger.error(f"读取 SUMMARY_COOL_DOWN 配置失败: {e}，使用 60")
     cooldown_seconds = 60
@@ -79,7 +81,9 @@ def parse_and_validate_time(time_str: str) -> tuple[int, int]:
         from .handlers.scheduler import parse_time
 
         result = parse_time(time_str)
-        logger.debug(f"parse_and_validate_time successful, result: {result[0]:02d}:{result[1]:02d}")
+        logger.debug(
+            f"parse_and_validate_time successful, result: {result[0]:02d}:{result[1]:02d}"
+        )
         return result
 
     except ValueError as e:
@@ -98,80 +102,143 @@ __plugin_meta__ = PluginMetadata(
     name="群聊总结",
     description="使用 AI 分析群聊记录，生成讨论内容的总结",
     usage=(
-        "【基础命令】\n"
-        "  总结 [消息数量] [-p 风格] [内容] [@用户1 @用户2 ...]\n"
-        "    - 生成该群最近消息数量的内容总结\n"
-        "    - 可选 -p/--prompt 指定总结风格 (例如: -p 正式, --prompt 锐评)\n"
-        "    - 可选指定[内容]过滤条件\n"
-        "    - 可选指定[@用户]只总结特定用户的发言\n"
-        "    - 例如：总结 100 关于项目进度\n"
-        "    - 例如：总结 500 @张三 @李四\n"
-        "    - 例如：总结 200 -p 正式 关于BUG @张三\n\n"
-        "【仅限超级用户的命令】\n"
-        "  定时总结 [HH:MM或HHMM] [最少消息数量] [-p 风格] [-g 群号] [-all]\n"
-        "    - 设置定时生成消息总结\n"
-        "    - 可选 -p/--prompt 指定总结风格 (例如: -p 正式, --prompt 锐评)\n"
-        "    - -g 参数可指定特定群号\n"
-        "    - -all 参数将对所有群生效\n"
-        "    - 例如：定时总结 22:00 100 -g 123456\n"
-        "    - 例如：定时总结 08:30 200 -p 简洁\n\n"
-        "  定时总结取消 [-g 群号] [-all]\n"
-        "    - 取消本群或指定群的定时内容总结\n\n"
-        "  总结调度状态 [-d]\n"
-        "    - 查看当前所有定时总结任务的状态\n"
-        "    - 显示下次执行时间和群号信息 (-d 显示详细信息)\n\n"
-        "  总结健康检查\n"
-        "    - 检查插件系统健康状态\n"
-        "    - 显示调度器、队列处理器等组件状态\n\n"
-        "  总结系统修复\n"
-        "    - 自动修复可能的系统问题\n"
-        "    - 用于解决任务队列或调度器异常\n"
+        "📖 **核心功能**\n"
+        "  ▶ `总结 <消息数量>`\n"
+        "      ▷ 对当前群聊最近指定数量的消息进行总结。\n"
+        "      ▷ 示例: `总结 300`\n"
+        "  ▶ `总结 <消息数量> -p <风格>`\n"
+        "      ▷ 指定总结的风格 (如：正式, 幽默, 锐评)。\n"
+        "      ▷ 示例: `总结 100 -p 幽默`\n"
+        "  ▶ `总结 <消息数量> @用户1 @用户2 ...`\n"
+        "      ▷ 只总结被@用户的发言。\n"
+        "      ▷ 示例: `总结 500 @张三 @李四`\n"
+        "  ▶ `总结 <消息数量> <关键词>`\n"
+        "      ▷ 只总结包含指定关键词的消息内容。\n"
+        "      ▷ 示例: `总结 200 关于项目进度`\n"
+        "  ▶ `总结 <数量> [-p 风格] [@用户] [关键词] -g <群号>` (限 Superuser)\n"
+        "      ▷ 远程总结指定群号的聊天记录。\n"
+        "      ▷ 示例: `总结 150 -g 12345678`\n\n"
+        "🤖 **AI 模型管理**\n"
+        "  ▶ `总结模型列表`\n"
+        "      ▷ 列出所有已配置可用的 AI 模型及其提供商。\n"
+        "  ▶ `总结切换模型 <Provider/Model>` (限 Superuser)\n"
+        "      ▷ 切换全局默认使用的 AI 模型。\n"
+        "      ▷ 示例: `总结切换模型 DeepSeek/deepseek-chat`\n\n"
+        "⚙️ **配置管理 (统一入口: /总结配置)**\n"
+        "  ▶ `/总结配置 查看 [-g 群号]`\n"
+        "      ▷ 查看当前群（或指定群）的特定设置。\n"
+        "      ▷ 不带参数直接输入 `/总结配置` 效果相同。\n"
+        "      ▷ 示例: `/总结配置 查看` 或 `/总结配置` 或 `/总结配置 查看 -g 123456`\n"
+        "  ▶ `/总结配置 模型 列表`\n"
+        "      ▷ 列出所有已配置可用的 AI 模型及其提供商。\n"
+        "  ▶ `/总结配置 模型 切换 <Provider/Model>` (限 Superuser)\n"
+        "      ▷ 切换全局默认使用的 AI 模型。\n"
+        "      ▷ 示例: `/总结配置 模型 切换 DeepSeek/deepseek-chat`\n"
+        "  ▶ `/总结配置 模型 设置 <Provider/Model> [-g 群号]` (限 Superuser)\n"
+        "      ▷ 设置当前群（或指定群）覆盖全局的默认模型。\n"
+        "      ▷ 示例: `/总结配置 模型 设置 Gemini/gemini-pro`\n"
+        "      ▷ 示例: `/总结配置 模型 设置 Gemini/gemini-pro -g 123456`\n"
+        "  ▶ `/总结配置 模型 移除 [-g 群号]` (限 Superuser)\n"
+        "      ▷ 移除当前群（或指定群）的特定模型设置，恢复使用全局模型。\n"
+        "      ▷ 示例: `/总结配置 模型 移除` 或 `/总结配置 模型 移除 -g 123456`\n"
+        "  ▶ `/总结配置 风格 设置 <风格名称> [-g 群号]` (限 Admin/Superuser)\n"
+        "      ▷ 设置当前群（或指定群）的默认总结风格。\n"
+        "      ▷ 示例: `/总结配置 风格 设置 轻松活泼`\n"
+        "      ▷ 示例: `/总结配置 风格 设置 轻松活泼 -g 123456`\n"
+        "  ▶ `/总结配置 风格 移除 [-g 群号]` (限 Admin/Superuser)\n"
+        "      ▷ 移除当前群（或指定群）的默认风格设置。\n"
+        "      ▷ 示例: `/总结配置 风格 移除` 或 `/总结配置 风格 移除 -g 123456`\n\n"
+        "⏱️ **定时任务 (需 Admin/Superuser 权限)**\n"
+        "  ▶ `定时总结 <时间> [消息数量] [-p 风格] [-g 群号 | -all]`\n"
+        "      ▷ 设置定时发送总结 (HH:MM 或 HHMM 格式)。\n"
+        "      ▷ `-g` 指定群, `-all` 对所有群 (仅 Superuser)。\n"
+        "      ▷ 示例: `定时总结 22:30 500` (设置本群)\n"
+        "      ▷ 示例: `定时总结 0800 -g 123456` (Superuser 设置指定群)\n"
+        "  ▶ `定时总结取消 [-g 群号 | -all]`\n"
+        "      ▷ 取消定时总结任务。\n"
+        "      ▷ 示例: `定时总结取消` (取消本群)\n\n"
+        "💏 **系统管理 (仅限 Superuser)**\n"
+        "  ▶ `总结调度状态 [-d]`\n"
+        "      ▷ 查看所有定时任务的运行状态。\n"
+        "  ▶ `总结健康检查`\n"
+        "      ▷ 检查插件各组件的健康状况。\n"
+        "  ▶ `总结系统修复`\n"
+        "      ▷ 尝试自动修复检测到的系统问题。\n\n"
+        "ℹ️ **提示:**\n"
+        f"  - 消息数量范围: {base_config.get('SUMMARY_MIN_LENGTH', 1)} - {base_config.get('SUMMARY_MAX_LENGTH', 1000)}\n"
+        f"  - 手动总结冷却时间: {base_config.get('SUMMARY_COOL_DOWN', 60)} 秒\n"
+        "  - 配置相关命令中的 `-g <群号>` 参数通常需要 Superuser 权限"
     ),
     type="application",
     homepage="https://github.com/webjoin111/zhenxun_plugin_summary_group",
     supported_adapters={"~onebot.v11"},
     extra=PluginExtraData(
         author="webjoin111",
-        version="0.2",
+        version="2.0",
         configs=[
             RegisterConfig(
                 module="summary_group",
-                key="SUMMARY_API_KEYS",
+                key="SUMMARY_PROVIDERS",
+                value=[
+                    {
+                        "name": "DeepSeek",
+                        "api_key": "sk-******",
+                        "api_base": "https://api.deepseek.com",
+                        "models": [
+                            {
+                                "model_name": "deepseek-chat",
+                                "max_tokens": 4096,
+                                "temperature": 0.7,
+                            },
+                            {"model_name": "deepseek-reasoner"},
+                        ],
+                    },
+                    {
+                        "name": "GLM",
+                        "api_key": "**********.***********",
+                        "api_base": "https://open.bigmodel.cn/api/paas",
+                        "api_type": "zhipu",
+                        "models": [
+                            {
+                                "model_name": "glm-4-flash",
+                                "max_tokens": 4096,
+                                "temperature": 0.7,
+                            }
+                        ],
+                    },
+                    {
+                        "name": "ARK",
+                        "api_key": "********-****-****-****-************",
+                        "api_base": "https://ark.cn-beijing.volces.com/api/v3",
+                        "api_type": "openai",
+                        "models": [{"model_name": "ep-202503210****-****"}],
+                    },
+                    {
+                        "name": "Gemini",
+                        "api_key": [
+                            "AIzaSy*****************************",
+                            "AIzaSy*****************************",
+                            "AIzaSy*****************************",
+                        ],
+                        "api_base": "https://generativelanguage.googleapis.com",
+                        "temperature": 0.8,
+                        "models": [
+                            {"model_name": "gemini-2.0-flash"},
+                            {"model_name": "gemini-2.5-flash-preview-04-17"},
+                        ],
+                    },
+                ],
+                help="配置多个 AI 服务提供商及其模型信息 (列表)",
+                default_value=[],
+                type=list[dict],
+            ),
+            RegisterConfig(
+                module="summary_group",
+                key="CURRENT_ACTIVE_MODEL_NAME",
                 value=None,
-                help="API密钥列表或单个密钥",
-                default_value=None,
-            ),
-            RegisterConfig(
-                module="summary_group",
-                key="SUMMARY_API_BASE",
-                value="https://generativelanguage.googleapis.com",
-                help="API基础URL",
-                default_value="https://generativelanguage.googleapis.com",
-                type=str,
-            ),
-            RegisterConfig(
-                module="summary_group",
-                key="SUMMARY_MODEL",
-                value="gemini-2.0-flash-exp",
-                help="使用的AI模型名称",
-                default_value="gemini-2.0-flash-exp",
-                type=str,
-            ),
-            RegisterConfig(
-                module="summary_group",
-                key="SUMMARY_API_TYPE",
-                value=None,
-                help="API类型(如 openai, claude, gemini, baidu 等)，留空则根据模型名称自动推断",
+                help="当前激活使用的 AI 模型名称 (格式: ProviderName/ModelName)",
                 default_value=None,
                 type=str | None,
-            ),
-            RegisterConfig(
-                module="summary_group",
-                key="SUMMARY_OPENAI_COMPAT",
-                value=False,
-                help="是否对 Gemini API 使用 OpenAI 兼容模式访问 (需要对应 base url)",
-                default_value=False,
-                type=bool,
             ),
             RegisterConfig(
                 module="summary_group",
@@ -261,6 +328,22 @@ __plugin_meta__ = PluginMetadata(
                 default_value=False,
                 type=bool,
             ),
+            RegisterConfig(
+                module="summary_group",
+                key="EXCLUDE_BOT_MESSAGES",
+                value=False,
+                help="是否在总结时排除 Bot 自身发送的消息",
+                default_value=False,
+                type=bool,
+            ),
+            RegisterConfig(
+                module="summary_group",
+                key="SUMMARY_DEFAULT_MODEL_NAME",
+                value="DeepSeek/deepseek-chat",
+                help="默认使用的 AI 模型名称 (格式: ProviderName/ModelName)",
+                default_value="DeepSeek/deepseek-chat",
+                type=str,
+            ),
         ],
         limits=[
             PluginCdBlock(
@@ -281,7 +364,9 @@ summary_group = on_alconna(
         Args[
             "message_count",
             int,
-            Field(completion="输入要总结的消息数量 (配置范围内的整数)"),
+            Field(
+                completion=lambda: f"输入消息数量 ({base_config.get('SUMMARY_MIN_LENGTH', 1)}-{base_config.get('SUMMARY_MAX_LENGTH', 1000)})"
+            ),
         ],
         Option(
             "-p|--prompt",
@@ -289,7 +374,9 @@ summary_group = on_alconna(
         ),
         Option(
             "-g",
-            Args["target_group_id", int, Field(completion="指定群号 (需要超级用户权限)")],
+            Args[
+                "target_group_id", int, Field(completion="指定群号 (需要超级用户权限)")
+            ],
         ),
         Args[
             "parts?",
@@ -303,8 +390,8 @@ summary_group = on_alconna(
             usage=(
                 "总结 <消息数量> [-p|--prompt 风格] [-g 群号] [@用户/内容过滤...]\n"
                 "消息数量范围: "
-                f"{Config.get('summary_group').get('SUMMARY_MIN_LENGTH')} - "
-                f"{Config.get('summary_group').get('SUMMARY_MAX_LENGTH')}\n"
+                f"{base_config.get('SUMMARY_MIN_LENGTH', 1)} - "
+                f"{base_config.get('SUMMARY_MAX_LENGTH', 1000)}\n"
                 "说明: -g 仅限超级用户"
             ),
             example=(
@@ -331,7 +418,7 @@ summary_set = on_alconna(
             "least_message_count?",
             int,
             Field(
-                default=Config.get("summary_group").get("SUMMARY_MAX_LENGTH"),
+                default=base_config.get("SUMMARY_MAX_LENGTH", 1000),
                 completion="输入定时总结所需的最少消息数量 (可选)",
             ),
         ],
@@ -341,7 +428,9 @@ summary_set = on_alconna(
         ),
         Option(
             "-g",
-            Args["target_group_id", int, Field(completion="指定群号 (需要超级用户权限)")],
+            Args[
+                "target_group_id", int, Field(completion="指定群号 (需要超级用户权限)")
+            ],
         ),
         Option("-all", help_text="对所有群生效 (需要超级用户权限)"),
         meta=CommandMeta(
@@ -371,7 +460,9 @@ summary_remove = on_alconna(
         "定时总结取消",
         Option(
             "-g",
-            Args["target_group_id", int, Field(completion="指定群号 (需要超级用户权限)")],
+            Args[
+                "target_group_id", int, Field(completion="指定群号 (需要超级用户权限)")
+            ],
         ),
         Option("-all", help_text="取消所有群的定时总结 (需要超级用户权限)"),
         meta=CommandMeta(
@@ -429,11 +520,105 @@ summary_repair = on_alconna(
 )
 
 
+summary_switch_model = on_alconna(
+    Alconna(
+        "总结切换模型",
+        Args["provider_model", str, Field(completion="输入 ProviderName/ModelName")],
+        meta=CommandMeta(
+            description="切换当前使用的 AI 模型 (仅限超级用户)",
+            usage="总结切换模型 ProviderName/ModelName",
+        ),
+    ),
+    permission=SUPERUSER,
+    priority=5,
+    block=True,
+)
+
+summary_list_models = on_alconna(
+    Alconna(
+        "总结模型列表",
+        meta=CommandMeta(description="列出可用的 AI 模型", usage="总结模型列表"),
+    ),
+    priority=5,
+    block=True,
+    permission=SUPERUSER,
+)
+
+summary_help = on_alconna(
+    Alconna(
+        "总结帮助",
+        meta=CommandMeta(
+            description="显示总结插件的帮助文档",
+            usage="总结帮助",
+            example="总结帮助",
+        ),
+    ),
+    priority=5,
+    block=True,
+)
+
+summary_config_cmd = on_alconna(
+    Alconna(
+        "总结配置",
+        Option("-g", Args["target_group_id?", int]),
+        Subcommand(
+            "模型",
+            Subcommand("列表"),
+            Subcommand("切换", Args["provider_model", str]),
+            Subcommand("设置", Args["provider_model", str]),
+            Subcommand("移除"),
+        ),
+        Subcommand(
+            "风格",
+            Subcommand("设置", Args["style_name", str]),
+            Subcommand("移除"),
+        ),
+        Subcommand("查看"),
+        meta=CommandMeta(
+            description="管理总结插件的配置",
+            usage=(
+                "总结配置 [-g 群号]\n"
+                "总结配置 模型 列表\n"
+                "总结配置 模型 切换 <Provider/Model>  (仅 Superuser)\n"
+                "总结配置 模型 设置 <Provider/Model> [-g 群号] (仅 Superuser)\n"
+                "总结配置 模型 移除 [-g 群号]         (仅 Superuser)\n"
+                "总结配置 风格 设置 <风格名称> [-g 群号] (需 Admin)\n"
+                "总结配置 风格 移除 [-g 群号]         (需 Admin)\n"
+                "总结配置 查看 [-g 群号]\n"
+                "注: 不带 -g 时，设置/移除/查看 默认作用于当前群聊。"
+            ),
+            example=(
+                "总结配置 查看\n"
+                "总结配置 -g 123456\n"
+                "总结配置 模型 列表\n"
+                "总结配置 模型 切换 DeepSeek/deepseek-chat\n"
+                "总结配置 模型 设置 Gemini/gemini-pro\n"
+                "总结配置 模型 设置 Gemini/gemini-pro -g 123456\n"
+                "总结配置 模型 移除\n"
+                "总结配置 模型 移除 -g 123456\n"
+                "总结配置 风格 设置 简洁明了\n"
+                "总结配置 风格 设置 简洁明了 -g 123456\n"
+                "总结配置 风格 移除\n"
+                "总结配置 风格 移除 -g 123456\n"
+            ),
+        ),
+    ),
+    priority=5,
+    block=True,
+)
+
+
+from .handlers.group_settings import handle_summary_config
 from .handlers.health import (
     handle_health_check as health_check_handler_impl,
 )
 from .handlers.health import (
     handle_system_repair as system_repair_handler_impl,
+)
+from .handlers.model_control import (
+    handle_list_models,
+    handle_switch_model,
+    validate_active_model_on_startup,
 )
 from .handlers.scheduler import (
     check_scheduler_status_handler as check_status_handler_impl,
@@ -445,6 +630,7 @@ from .handlers.scheduler import (
     handle_summary_set as summary_set_handler_impl,
 )
 from .handlers.summary import handle_summary as summary_handler_impl
+from .utils.summary import generate_help_image
 
 
 @summary_group.handle()
@@ -467,11 +653,15 @@ async def _(
     target_group_id_from_option = None
     if target_group_id_match:
         if not is_superuser:
-            await UniMessage.text("需要超级用户权限才能使用 -g 参数指定群聊。").send(target)
+            await UniMessage.text("需要超级用户权限才能使用 -g 参数指定群聊。").send(
+                target
+            )
             logger.warning(f"用户 {user_id_str} (非超级用户) 尝试使用 -g 参数")
             return
         target_group_id_from_option = int(target_group_id_match)
-        logger.debug(f"超级用户 {user_id_str} 使用 -g 指定群聊: {target_group_id_from_option}")
+        logger.debug(
+            f"超级用户 {user_id_str} 使用 -g 指定群聊: {target_group_id_from_option}"
+        )
 
     if not is_superuser:
         is_ready = summary_cd_limiter.check(user_id_str)
@@ -479,8 +669,12 @@ async def _(
 
         if not is_ready:
             left = summary_cd_limiter.left_time(user_id_str)
-            logger.info(f"用户 {user_id_str} 触发总结命令，但在冷却中 ({left:.1f}s 剩余)")
-            await UniMessage.text(f"总结功能冷却中，请等待 {left:.1f} 秒后再试~").send(target)
+            logger.info(
+                f"用户 {user_id_str} 触发总结命令，但在冷却中 ({left:.1f}s 剩余)"
+            )
+            await UniMessage.text(f"总结功能冷却中，请等待 {left:.1f} 秒后再试~").send(
+                target
+            )
             return
         else:
             logger.debug(f"用户 {user_id_str} 不在冷却中，继续执行。")
@@ -498,7 +692,9 @@ async def _(
             await UniMessage.text(f"验证消息数量时出错: {e}").send(target)
             return
 
-        await summary_handler_impl(bot, event, result, message_count, style, parts, target)
+        await summary_handler_impl(
+            bot, event, result, message_count, style, parts, target
+        )
     except Exception as e:
         logger.error(
             f"处理总结命令时发生异常: {e}",
@@ -541,8 +737,10 @@ async def _(
         try:
             time_tuple = parse_and_validate_time(time_str_match)
 
-            default_count = Config.get("summary_group").get("SUMMARY_MAX_LENGTH")
-            count_to_validate = least_count_match if least_count_match is not None else default_count
+            default_count = base_config.get("SUMMARY_MAX_LENGTH")
+            count_to_validate = (
+                least_count_match if least_count_match is not None else default_count
+            )
             least_count = validate_and_parse_msg_count(count_to_validate)
 
         except ValueError as e:
@@ -553,7 +751,9 @@ async def _(
             await UniMessage.text(f"解析时间或数量时出错: {e}").send(target)
             return
 
-        await summary_set_handler_impl(bot, event, result, time_tuple, least_count, style_value, target)
+        await summary_set_handler_impl(
+            bot, event, result, time_tuple, least_count, style_value, target
+        )
     except Exception as e:
         logger.error(
             f"处理定时总结设置命令时发生异常: {e}",
@@ -579,23 +779,98 @@ async def _(
 
 
 @summary_check_status.handle()
-async def handle_check_status(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget):
+async def handle_check_status(
+    bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget
+):
     await check_status_handler_impl(bot, event, target)
 
 
 @summary_health.handle()
-async def handle_check_health(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget):
+async def handle_check_health(
+    bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget
+):
     await health_check_handler_impl(bot, event, target)
 
 
 @summary_repair.handle()
-async def handle_system_fix(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget):
+async def handle_system_fix(
+    bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget
+):
     await system_repair_handler_impl(bot, event, target)
 
 
 driver = get_driver()
 
 
+@summary_switch_model.handle()
+async def _(
+    bot: Bot,
+    event: GroupMessageEvent | PrivateMessageEvent,
+    provider_model: Match[str],
+    target: MsgTarget,
+):
+    if provider_model.available:
+        new_name = provider_model.result
+        success, message = handle_switch_model(new_name)
+        if success:
+            Config.set_config(
+                "summary_group", "CURRENT_ACTIVE_MODEL_NAME", new_name, auto_save=True
+            )
+            logger.info(f"AI 模型已通过配置持久化切换为: {new_name}")
+            await UniMessage.text(f"已成功切换到模型: {new_name}").send(target)
+        else:
+            await UniMessage.text(message).send(target)
+    else:
+        await UniMessage.text(
+            "请输入要切换的模型名称 (格式: ProviderName/ModelName)。"
+        ).send(target)
+
+
+@summary_list_models.handle()
+async def _(
+    bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget
+):
+    current_model_name = base_config.get("CURRENT_ACTIVE_MODEL_NAME")
+    message = handle_list_models(current_model_name)
+    await UniMessage.text(message).send(target)
+
+
+@summary_help.handle()
+async def _(
+    bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget
+):
+    try:
+        usage_text = __plugin_meta__.usage
+
+        try:
+            img_bytes = await generate_help_image(usage_text)
+            await UniMessage.image(raw=img_bytes).send(target)
+            logger.info("已发送总结帮助图片", command="总结帮助")
+        except Exception as e:
+            logger.warning(f"生成帮助图片失败，使用文本模式: {e}", command="总结帮助")
+            await UniMessage.text(f"📖 群聊总结插件帮助文档\n\n{usage_text}").send(
+                target
+            )
+    except Exception as e:
+        logger.error(f"总结帮助命令处理失败: {e}", command="总结帮助", e=e)
+        await UniMessage.text(f"生成帮助文档时出错: {e}").send(target)
+
+
+@summary_config_cmd.handle()
+async def _(
+    bot: Bot,
+    event: GroupMessageEvent | PrivateMessageEvent,
+    target: MsgTarget,
+    result: CommandResult,
+):
+    await handle_summary_config(bot, event, target, result)
+
+
 @driver.on_startup
 async def startup():
     set_scheduler()
+    validate_active_model_on_startup()
+    final_active_model = base_config.get("CURRENT_ACTIVE_MODEL_NAME")
+    logger.info(
+        f"群聊总结插件启动，当前激活模型: {final_active_model or '未指定或配置错误'}"
+    )

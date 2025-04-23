@@ -15,9 +15,6 @@ from ..store import Store
 from .health import check_system_health
 
 base_config = Config.get("summary_group")
-if base_config is None:
-    logger.error("[utils/scheduler.py] 无法加载 'summary_group' 配置!")
-    base_config = {}
 
 summary_semaphore = asyncio.Semaphore(2)
 summary_queue = asyncio.Queue()
@@ -72,7 +69,7 @@ async def update_single_group_schedule(group_id: int, data: dict) -> tuple:
         hour = data.get("hour", 0)
         minute = data.get("minute", 0)
 
-        default_least_count = base_config.get("SUMMARY_MAX_LENGTH")
+        default_least_count = base_config.get("SUMMARY_MAX_LENGTH", 1000)
         least_message_count = data.get("least_message_count", default_least_count)
         style = data.get("style", None)
 
@@ -229,10 +226,7 @@ async def process_summary_queue() -> None:
 
     logger.debug("总结任务队列处理器已启动，开始监听队列", command="队列处理器")
 
-    concurrent_tasks = base_config.get("CONCURRENT_TASKS")
-    if concurrent_tasks is None:
-        logger.warning("未配置 CONCURRENT_TASKS，使用默认值 2")
-        concurrent_tasks = 2
+    concurrent_tasks = base_config.get("CONCURRENT_TASKS", 2)
 
     semaphore = asyncio.Semaphore(concurrent_tasks)
 
@@ -339,10 +333,7 @@ async def process_summary_queue() -> None:
                                 group_id=group_id,
                             )
 
-                            min_len_required = base_config.get("SUMMARY_MIN_LENGTH")
-                            if min_len_required is None:
-                                logger.warning("未配置 SUMMARY_MIN_LENGTH，使用默认值 50 进行检查")
-                                min_len_required = 50
+                            min_len_required = base_config.get("SUMMARY_MIN_LENGTH", 50)
                             if message_count < min_len_required:
                                 logger.debug(
                                     f"[{task_id}] 群 {group_id} 消息数量不足 "
@@ -402,7 +393,13 @@ async def process_summary_queue() -> None:
                             group_id=group_id,
                         )
                         try:
-                            summary = await messages_summary(messages=processed_messages, style=style)
+                            # 创建群聊目标对象传递给 messages_summary
+                            msg_target = Target.group(group_id=group_id)
+                            summary = await messages_summary(
+                                target=msg_target,
+                                messages=processed_messages,
+                                style=style
+                            )
 
                             logger.debug(
                                 f"[{task_id}] 群 {group_id} (风格: {style or '默认'}) "
@@ -592,7 +589,7 @@ def set_scheduler() -> None:
     if cleaned_count > 0:
         logger.debug(f"自动清理了 {cleaned_count} 个无效的群配置", command="scheduler")
 
-    group_configs = store.data.items()
+    group_configs = store.schedule_data.items()
     logger.debug(f"加载了 {len(group_configs)} 个群组的定时总结配置", command="scheduler")
 
     successful_count = 0
@@ -605,7 +602,7 @@ def set_scheduler() -> None:
             hour = data.get("hour", 0)
             minute = data.get("minute", 0)
 
-            default_least_count = base_config.get("SUMMARY_MAX_LENGTH")
+            default_least_count = base_config.get("SUMMARY_MAX_LENGTH", 1000)
             least_message_count = data.get("least_message_count", default_least_count)
             style = data.get("style", None)
 
