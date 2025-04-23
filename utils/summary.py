@@ -243,6 +243,13 @@ async def generate_help_image(_: str = "") -> bytes:
 - `定时总结取消 [-g 群号 | -all]` - 取消定时总结任务
   - 示例: `定时总结取消` (取消本群)
 
+## 🤖 AI 模型管理
+
+- `总结模型列表` - 列出所有已配置可用的 AI 模型及其提供商
+
+- `总结切换模型 <Provider/Model>` _(限 Superuser)_ - 切换全局默认使用的 AI 模型
+  - 示例: `总结切换模型 DeepSeek/deepseek-chat`
+
 ## 💏 系统管理 (仅限 Superuser)
 
 - `总结调度状态 [-d]` - 查看所有定时任务的运行状态
