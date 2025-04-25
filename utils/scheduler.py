@@ -29,7 +29,9 @@ class ScheduleException(SummaryException):
     pass
 
 
-async def scheduler_send_summary(group_id: int, least_message_count: int, style: str | None = None) -> None:
+async def scheduler_send_summary(
+    group_id: int, least_message_count: int, style: str | None = None
+) -> None:
     try:
         logger.debug(
             f"正在将群 {group_id} 的总结任务添加到队列，消息数量: {least_message_count}, 风格: {style or '默认'}",
@@ -104,7 +106,12 @@ async def update_single_group_schedule(group_id: int, data: dict) -> tuple:
                 timezone="Asia/Shanghai",
             )
         except Exception as e:
-            logger.error(f"添加/更新定时任务时出错: {e}", command="scheduler", group_id=group_id, e=e)
+            logger.error(
+                f"添加/更新定时任务时出错: {e}",
+                command="scheduler",
+                group_id=group_id,
+                e=e,
+            )
             return False, None
 
         updated_job = scheduler.get_job(job_id)
@@ -119,11 +126,15 @@ async def update_single_group_schedule(group_id: int, data: dict) -> tuple:
                 }
                 if not store.set(group_id, save_data):
                     logger.error(
-                        f"群 {group_id} 的定时任务设置保存失败", command="scheduler", group_id=group_id
+                        f"群 {group_id} 的定时任务设置保存失败",
+                        command="scheduler",
+                        group_id=group_id,
                     )
                 else:
                     logger.debug(
-                        f"群 {group_id} 的定时任务设置已保存", command="scheduler", group_id=group_id
+                        f"群 {group_id} 的定时任务设置已保存",
+                        command="scheduler",
+                        group_id=group_id,
                     )
             except Exception as store_e:
                 logger.error(
@@ -162,7 +173,9 @@ def verify_processor_status() -> int:
     import asyncio
 
     all_tasks = asyncio.all_tasks()
-    processor_tasks = [t for t in all_tasks if t.get_name() == "summary_queue_processor"]
+    processor_tasks = [
+        t for t in all_tasks if t.get_name() == "summary_queue_processor"
+    ]
 
     logger.debug(f"当前队列处理器任务数量: {len(processor_tasks)}", command="scheduler")
 
@@ -185,7 +198,9 @@ def verify_processor_status() -> int:
             pass
         else:
             running_tasks += 1
-            logger.debug("队列处理器正在运行中", command="scheduler", group_id=task.get_name())
+            logger.debug(
+                "队列处理器正在运行中", command="scheduler", group_id=task.get_name()
+            )
 
     if running_tasks == 0:
         logger.warning("未找到运行中的队列处理器任务，正在创建...", command="scheduler")
@@ -205,7 +220,9 @@ def check_scheduler_status() -> list:
     jobs = scheduler.get_jobs()
     logger.debug(f"当前调度器中的任务数量: {len(jobs)}", command="scheduler")
     for job in jobs:
-        logger.debug(f"任务ID: {job.id}, 下次运行时间: {job.next_run_time}", command="scheduler")
+        logger.debug(
+            f"任务ID: {job.id}, 下次运行时间: {job.next_run_time}", command="scheduler"
+        )
     return jobs
 
 
@@ -287,7 +304,9 @@ async def process_summary_queue() -> None:
                                 summary_queue.task_done()
                                 continue
 
-                            if await GroupConsole.is_block_plugin(group_id_str, plugin_name):
+                            if await GroupConsole.is_block_plugin(
+                                group_id_str, plugin_name
+                            ):
                                 logger.info(
                                     f"Plugin '{plugin_name}' is blocked for Group {group_id_str}, "
                                     f"skipping task [{task_id}].",
@@ -359,7 +378,9 @@ async def process_summary_queue() -> None:
                             group_id=group_id,
                         )
                         try:
-                            processed_data_tuple = await process_message(messages, bot, group_id)
+                            processed_data_tuple = await process_message(
+                                messages, bot, group_id
+                            )
                             processed_messages = processed_data_tuple[0]
 
                             if not processed_messages:
@@ -398,7 +419,7 @@ async def process_summary_queue() -> None:
                             summary = await messages_summary(
                                 target=msg_target,
                                 messages=processed_messages,
-                                style=style
+                                style=style,
                             )
 
                             logger.debug(
@@ -434,7 +455,9 @@ async def process_summary_queue() -> None:
 
                                 try:
                                     await Statistics.create(
-                                        user_id=str(metadata.get("user_id", "scheduler")),
+                                        user_id=str(
+                                            metadata.get("user_id", "scheduler")
+                                        ),
                                         group_id=str(group_id),
                                         plugin_name="summary_group_scheduler",
                                         bot_id=str(bot.self_id),
@@ -536,7 +559,9 @@ async def process_summary_queue() -> None:
                 await asyncio.sleep(5)
 
         except Exception as e:
-            logger.error(f"任务队列处理器遇到未处理异常: {e!s}", command="队列处理器", e=e)
+            logger.error(
+                f"任务队列处理器遇到未处理异常: {e!s}", command="队列处理器", e=e
+            )
             await asyncio.sleep(10)
 
 
@@ -545,14 +570,18 @@ def set_scheduler() -> None:
 
     global task_processor_started
     if not task_processor_started:
-        logger.info("初始化调度器: 启动 summary_group 队列处理器...", command="scheduler")
+        logger.info(
+            "初始化调度器: 启动 summary_group 队列处理器...", command="scheduler"
+        )
         try:
             _task = asyncio.create_task(process_summary_queue())
             _task.set_name("summary_queue_processor")
             task_processor_started = True
             logger.info("summary_group 队列处理器已成功启动", command="scheduler")
         except Exception as e:
-            logger.error(f"启动 summary_group 队列处理器失败: {e}", command="scheduler", e=e)
+            logger.error(
+                f"启动 summary_group 队列处理器失败: {e}", command="scheduler", e=e
+            )
     else:
         logger.debug("summary_group 队列处理器已在运行", command="scheduler")
 
@@ -580,7 +609,9 @@ def set_scheduler() -> None:
         logger.debug(f"自动清理了 {cleaned_count} 个无效的群配置", command="scheduler")
 
     group_configs = store.schedule_data.items()
-    logger.debug(f"加载了 {len(group_configs)} 个群组的定时总结配置", command="scheduler")
+    logger.debug(
+        f"加载了 {len(group_configs)} 个群组的定时总结配置", command="scheduler"
+    )
 
     successful_count = 0
     failed_count = 0
@@ -635,7 +666,9 @@ def set_scheduler() -> None:
             store.remove(int(group_id_str) if group_id_str.isdigit() else 0)
 
         except Exception as e:
-            logger.error(f"为群 {group_id_str} 设置定时任务失败: {e}", command="scheduler")
+            logger.error(
+                f"为群 {group_id_str} 设置定时任务失败: {e}", command="scheduler"
+            )
             failed_count += 1
 
     if successful_count > 0:
@@ -644,7 +677,9 @@ def set_scheduler() -> None:
             command="scheduler",
         )
     if failed_count > 0:
-        logger.warning(f"有 {failed_count} 个群组的定时任务设置失败", command="scheduler")
+        logger.warning(
+            f"有 {failed_count} 个群组的定时任务设置失败", command="scheduler"
+        )
 
 
 def remove_scheduler(group_id: int) -> bool:
@@ -665,7 +700,11 @@ async def stop_tasks() -> None:
     global task_processor_started
     logger.info("正在停止所有后台任务...", command="shutdown")
 
-    processor_tasks = [task for task in asyncio.all_tasks() if task.get_name() == "summary_queue_processor"]
+    processor_tasks = [
+        task
+        for task in asyncio.all_tasks()
+        if task.get_name() == "summary_queue_processor"
+    ]
     for task in processor_tasks:
         if not task.done():
             task.cancel()

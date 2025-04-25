@@ -102,72 +102,22 @@ __plugin_meta__ = PluginMetadata(
     name="群聊总结",
     description="使用 AI 分析群聊记录，生成讨论内容的总结",
     usage=(
-        "📖 **核心功能**\n"
-        "  ▶ `总结 <消息数量>`\n"
-        "      ▷ 对当前群聊最近指定数量的消息进行总结。\n"
-        "      ▷ 示例: `总结 300`\n"
-        "  ▶ `总结 <消息数量> -p <风格>`\n"
-        "      ▷ 指定总结的风格 (如：正式, 幽默, 锐评)。\n"
-        "      ▷ 示例: `总结 100 -p 幽默`\n"
-        "  ▶ `总结 <消息数量> @用户1 @用户2 ...`\n"
-        "      ▷ 只总结被@用户的发言。\n"
-        "      ▷ 示例: `总结 500 @张三 @李四`\n"
-        "  ▶ `总结 <消息数量> <关键词>`\n"
-        "      ▷ 只总结包含指定关键词的消息内容。\n"
-        "      ▷ 示例: `总结 200 关于项目进度`\n"
-        "  ▶ `总结 <数量> [-p 风格] [@用户] [关键词] -g <群号>` (限 Superuser)\n"
-        "      ▷ 远程总结指定群号的聊天记录。\n"
-        "      ▷ 示例: `总结 150 -g 12345678`\n\n"
-        "🤖 **AI 模型管理**\n"
-        "  ▶ `总结模型列表`\n"
-        "      ▷ 列出所有已配置可用的 AI 模型及其提供商。\n"
-        "  ▶ `总结切换模型 <Provider/Model>` (限 Superuser)\n"
-        "      ▷ 切换全局默认使用的 AI 模型。\n"
-        "      ▷ 示例: `总结切换模型 DeepSeek/deepseek-chat`\n\n"
-        "⚙️ **配置管理 (统一入口: /总结配置)**\n"
-        "  ▶ `/总结配置 查看 [-g 群号]`\n"
-        "      ▷ 查看当前群（或指定群）的特定设置。\n"
-        "      ▷ 不带参数直接输入 `/总结配置` 效果相同。\n"
-        "      ▷ 示例: `/总结配置 查看` 或 `/总结配置` 或 `/总结配置 查看 -g 123456`\n"
-        "  ▶ `/总结配置 模型 列表`\n"
-        "      ▷ 列出所有已配置可用的 AI 模型及其提供商。\n"
-        "  ▶ `/总结配置 模型 切换 <Provider/Model>` (限 Superuser)\n"
-        "      ▷ 切换全局默认使用的 AI 模型。\n"
-        "      ▷ 示例: `/总结配置 模型 切换 DeepSeek/deepseek-chat`\n"
-        "  ▶ `/总结配置 模型 设置 <Provider/Model> [-g 群号]` (限 Superuser)\n"
-        "      ▷ 设置当前群（或指定群）覆盖全局的默认模型。\n"
-        "      ▷ 示例: `/总结配置 模型 设置 Gemini/gemini-pro`\n"
-        "      ▷ 示例: `/总结配置 模型 设置 Gemini/gemini-pro -g 123456`\n"
-        "  ▶ `/总结配置 模型 移除 [-g 群号]` (限 Superuser)\n"
-        "      ▷ 移除当前群（或指定群）的特定模型设置，恢复使用全局模型。\n"
-        "      ▷ 示例: `/总结配置 模型 移除` 或 `/总结配置 模型 移除 -g 123456`\n"
-        "  ▶ `/总结配置 风格 设置 <风格名称> [-g 群号]` (限 Admin/Superuser)\n"
-        "      ▷ 设置当前群（或指定群）的默认总结风格。\n"
-        "      ▷ 示例: `/总结配置 风格 设置 轻松活泼`\n"
-        "      ▷ 示例: `/总结配置 风格 设置 轻松活泼 -g 123456`\n"
-        "  ▶ `/总结配置 风格 移除 [-g 群号]` (限 Admin/Superuser)\n"
-        "      ▷ 移除当前群（或指定群）的默认风格设置。\n"
-        "      ▷ 示例: `/总结配置 风格 移除` 或 `/总结配置 风格 移除 -g 123456`\n\n"
-        "⏱️ **定时任务 (需 Admin/Superuser 权限)**\n"
-        "  ▶ `定时总结 <时间> [消息数量] [-p 风格] [-g 群号 | -all]`\n"
-        "      ▷ 设置定时发送总结 (HH:MM 或 HHMM 格式)。\n"
-        "      ▷ `-g` 指定群, `-all` 对所有群 (仅 Superuser)。\n"
-        "      ▷ 示例: `定时总结 22:30 500` (设置本群)\n"
-        "      ▷ 示例: `定时总结 0800 -g 123456` (Superuser 设置指定群)\n"
-        "  ▶ `定时总结取消 [-g 群号 | -all]`\n"
-        "      ▷ 取消定时总结任务。\n"
-        "      ▷ 示例: `定时总结取消` (取消本群)\n\n"
-        "💏 **系统管理 (仅限 Superuser)**\n"
-        "  ▶ `总结调度状态 [-d]`\n"
-        "      ▷ 查看所有定时任务的运行状态。\n"
-        "  ▶ `总结健康检查`\n"
-        "      ▷ 检查插件各组件的健康状况。\n"
-        "  ▶ `总结系统修复`\n"
-        "      ▷ 尝试自动修复检测到的系统问题。\n\n"
-        "ℹ️ **提示:**\n"
-        f"  - 消息数量范围: {base_config.get('SUMMARY_MIN_LENGTH', 1)} - {base_config.get('SUMMARY_MAX_LENGTH', 1000)}\n"
-        f"  - 手动总结冷却时间: {base_config.get('SUMMARY_COOL_DOWN', 60)} 秒\n"
-        "  - 配置相关命令中的 `-g <群号>` 参数通常需要 Superuser 权限"
+        "📖 **群聊总结插件**\n\n"
+        "🔍 **基础命令**\n"
+        "  • `总结 <消息数量>` - 总结最近的群聊消息\n"
+        "  • `总结 <消息数量> -p <风格>` - 指定总结风格\n"
+        "  • `总结 <消息数量> @用户` - 只总结特定用户的消息\n"
+        "  • `总结模型列表` - 查看可用的AI模型\n"
+        "  • `总结切换模型 <Provider/Model>` - 切换AI模型 (限超管)\n\n"
+        "⏱️ **定时功能**\n"
+        "  • `定时总结 <时间>` - 设置定时总结 (需管理员)\n"
+        "  • `定时总结取消` - 取消定时总结\n\n"
+        "⚙️ **配置管理**\n"
+        "  • `/总结配置` - 查看和管理总结设置\n\n"
+        "ℹ️ **提示**\n"
+        f"  • 消息数量范围: {base_config.get('SUMMARY_MIN_LENGTH', 1)}-{base_config.get('SUMMARY_MAX_LENGTH', 1000)}\n"  # noqa: E501
+        f"  • 冷却时间: {base_config.get('SUMMARY_COOL_DOWN', 60)} 秒\n\n"
+        "📋 更多详细帮助请使用 `总结帮助` 命令查看"
     ),
     type="application",
     homepage="https://github.com/webjoin111/zhenxun_plugin_summary_group",
@@ -365,7 +315,7 @@ summary_group = on_alconna(
             "message_count",
             int,
             Field(
-                completion=lambda: f"输入消息数量 ({base_config.get('SUMMARY_MIN_LENGTH', 1)}-{base_config.get('SUMMARY_MAX_LENGTH', 1000)})"
+                completion=lambda: f"输入消息数量 ({base_config.get('SUMMARY_MIN_LENGTH', 1)}-{base_config.get('SUMMARY_MAX_LENGTH', 1000)})",  # noqa: E501
             ),
         ],
         Option(
@@ -467,7 +417,7 @@ summary_remove = on_alconna(
         Option("-all", help_text="取消所有群的定时总结 (需要超级用户权限)"),
         meta=CommandMeta(
             description="取消定时群聊总结",
-            usage="定时总结取消 [-g 群号 | -all]\n说明: 取消本群需管理员, -g/-all 仅限超级用户",
+            usage="定时总结取消 [-g 群号 | -all]\n说明: 取消本群需管理员",
             example="定时总结取消\n定时总结取消 -g 123456\n定时总结取消 -all",
         ),
     ),
