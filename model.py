@@ -12,6 +12,7 @@ from zhenxun.utils.http_utils import AsyncHttpx
 from zhenxun.utils.user_agent import get_user_agent
 
 base_config = Config.get("summary_group")
+ai_config = Config.get("AI")
 
 
 class ModelException(Exception):

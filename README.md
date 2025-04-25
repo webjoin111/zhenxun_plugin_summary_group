@@ -167,14 +167,15 @@
 
 ### 模型配置
 
-从 v2.0 版本开始，插件使用新的 `SUMMARY_PROVIDERS` 配置结构，支持按提供商分组管理多个 AI 模型。
+从 v2.0 版本开始，插件使用新的 `AI.PROVIDERS` 配置结构，支持按提供商分组管理多个 AI 模型。
 
 插件默认已经内置了多个模型配置，包括 DeepSeek、GLM、ARK 和 Gemini，但您需要将其中的 API 密钥替换为您自己的密钥才能正常使用。
 
 #### 配置示例
 
 ```yaml
-SUMMARY_PROVIDERS: # 模型提供商配置列表
+AI:
+  PROVIDERS: # 模型提供商配置列表
   - name: DeepSeek   # Provider 名称
     api_key: sk-******************************   # Provider 的 API Key (单个)
     api_base: https://api.deepseek.com   # Provider 的 API Base URL
@@ -623,7 +624,7 @@ Provider: GLM
 
 **解决方法：**
 - 确保模型名称格式正确，必须使用 `ProviderName/ModelName` 格式
-- 检查配置文件中的 `SUMMARY_PROVIDERS` 结构是否正确
+- 检查配置文件中的 `AI.PROVIDERS` 结构是否正确
 - 使用 `总结模型列表` 命令查看当前可用的模型
 - 如果修改了配置文件，需要重启 Bot 才能生效
 

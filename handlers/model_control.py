@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from ..model import Model
 
 base_config = Config.get("summary_group")
+ai_config = Config.get("AI")
 
 
 def parse_provider_model_string(name_str: str | None) -> tuple[str | None, str | None]:
@@ -23,9 +24,9 @@ def parse_provider_model_string(name_str: str | None) -> tuple[str | None, str |
 
 def get_configured_providers() -> list[ProviderConfig]:
     """从配置中安全地获取 Provider 列表"""
-    providers_raw = base_config.get("SUMMARY_PROVIDERS", [])
+    providers_raw = ai_config.get("PROVIDERS", [])
     if not isinstance(providers_raw, list):
-        logger.error("配置项 SUMMARY_PROVIDERS 不是一个列表，将使用空列表。")
+        logger.error("配置项 AI.PROVIDERS 不是一个列表，将使用空列表。")
         return []
 
     providers = []
@@ -58,7 +59,7 @@ def get_configured_providers() -> list[ProviderConfig]:
             except Exception as e:
                 logger.warning(f"解析配置文件中第 {i + 1} 个 Provider 时出错: {e}，已跳过。配置: {item}")
         else:
-            logger.warning(f"配置文件 SUMMARY_PROVIDERS 中第 {i + 1} 项不是字典格式，已跳过。")
+            logger.warning(f"配置文件 AI.PROVIDERS 中第 {i + 1} 项不是字典格式，已跳过。")
     return providers
 
 
@@ -153,7 +154,7 @@ def handle_switch_model(provider_model_name: str) -> tuple[bool, str]:
 
 def validate_active_model_on_startup():
     """在启动时验证并设置当前激活的模型名称配置"""
-    current_active_name_str = base_config.get("CURRENT_ACTIVE_MODEL_NAME")
+    current_active_name_str = Config.get_config("summary_group", "CURRENT_ACTIVE_MODEL_NAME")
     default_name_str = get_default_model_name()
     providers = get_configured_providers()
 
@@ -187,7 +188,7 @@ def validate_active_model_on_startup():
         validated = True
 
     if not validated:
-        logger.error("启动错误：未配置任何有效模型 (SUMMARY_PROVIDERS)，无法设置激活模型。")
+        logger.error("启动错误：未配置任何有效模型 (AI.PROVIDERS)，无法设置激活模型。")
         final_name_to_set = None
 
     if final_name_to_set != current_active_name_str:

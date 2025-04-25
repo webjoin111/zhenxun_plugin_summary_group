@@ -7,6 +7,7 @@ from zhenxun.configs.config import Config
 from zhenxun.services.log import logger
 
 base_config = Config.get("summary_group")
+ai_config = Config.get("AI")
 
 from ..model import ModelException
 from ..store import Store

@@ -177,8 +177,8 @@ __plugin_meta__ = PluginMetadata(
         version="2.0",
         configs=[
             RegisterConfig(
-                module="summary_group",
-                key="SUMMARY_PROVIDERS",
+                module="AI",
+                key="PROVIDERS",
                 value=[
                     {
                         "name": "DeepSeek",
@@ -830,7 +830,7 @@ async def _(
 async def _(
     bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget
 ):
-    current_model_name = base_config.get("CURRENT_ACTIVE_MODEL_NAME")
+    current_model_name = Config.get_config("summary_group", "CURRENT_ACTIVE_MODEL_NAME")
     message = handle_list_models(current_model_name)
     await UniMessage.text(message).send(target)
 
@@ -870,7 +870,7 @@ async def _(
 async def startup():
     set_scheduler()
     validate_active_model_on_startup()
-    final_active_model = base_config.get("CURRENT_ACTIVE_MODEL_NAME")
+    final_active_model = Config.get_config("summary_group", "CURRENT_ACTIVE_MODEL_NAME")
     logger.info(
         f"群聊总结插件启动，当前激活模型: {final_active_model or '未指定或配置错误'}"
     )
