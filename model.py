@@ -534,7 +534,7 @@ def detect_model() -> Model:
                 fallback_name = f"{selected_provider.name}/{selected_model_detail.model_name}"
                 logger.warning(f"[detect_model] 回退到第一个可用模型: {fallback_name}")
             else:
-                logger.critical("[detect_model] 无法找到任何可用模型配置！")
+                logger.warning("[detect_model] 无法找到任何可用模型配置！")
                 raise ModelException("错误：未配置任何有效的 AI 模型。")
 
         final_api_keys = selected_provider.api_key

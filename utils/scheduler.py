@@ -445,23 +445,20 @@ async def process_summary_queue() -> None:
                                         status="success",
                                     )
                                     logger.debug(
-                                        f"记录定时总结成功统计: group={group_id}",
+                                        f"记录定时总结成功统计: group={group_id}, task={task_id}",
                                         command="队列处理器",
-                                        task_id=task_id,
                                     )
                                 except Exception as stat_e:
                                     logger.error(
-                                        f"记录定时总结失败: {stat_e}",
+                                        f"记录定时总结失败: {stat_e}, task={task_id}",
                                         command="队列处理器",
                                         e=stat_e,
-                                        task_id=task_id,
                                     )
 
                             else:
                                 logger.warning(
                                     f"[{task_id}] 群 {group_id} 定时总结发送失败",
                                     command="队列处理器",
-                                    task_id=task_id,
                                 )
                                 await Statistics.create(
                                     user_id=str(metadata.get("user_id", "scheduler")),
@@ -475,9 +472,8 @@ async def process_summary_queue() -> None:
                                     status="failed_send",
                                 )
                                 logger.debug(
-                                    f"记录发送失败统计: group={group_id}",
+                                    f"记录发送失败统计: group={group_id}, task={task_id}",
                                     command="队列处理器",
-                                    task_id=task_id,
                                 )
 
                         except Exception as e:
@@ -486,7 +482,6 @@ async def process_summary_queue() -> None:
                                 command="队列处理器",
                                 group_id=group_id,
                                 e=e,
-                                task_id=task_id,
                             )
                             try:
                                 await Statistics.create(
@@ -502,16 +497,14 @@ async def process_summary_queue() -> None:
                                     error_message=str(e),
                                 )
                                 logger.debug(
-                                    f"记录处理失败统计: group={group_id}",
+                                    f"记录处理失败统计: group={group_id}, task={task_id}",
                                     command="队列处理器",
-                                    task_id=task_id,
                                 )
                             except Exception as stat_e:
                                 logger.error(
-                                    f"记录处理失败统计失败 for group {group_id}: {stat_e}",
+                                    f"记录处理失败统计失败 for group {group_id}: {stat_e}, task={task_id}",
                                     command="队列处理器",
                                     e=stat_e,
-                                    task_id=task_id,
                                 )
                     except Exception as e:
                         logger.error(
@@ -519,7 +512,6 @@ async def process_summary_queue() -> None:
                             command="队列处理器",
                             group_id=group_id,
                             e=e,
-                            task_id=task_id,
                         )
                     finally:
                         task_end_time = datetime.now()
@@ -527,14 +519,12 @@ async def process_summary_queue() -> None:
                         logger.debug(
                             f"任务 [{task_id}] 执行耗时: {duration:.2f} 秒",
                             command="队列处理器",
-                            task_id=task_id,
                         )
                         summary_queue.task_done()
                         semaphore.release()
                         logger.debug(
                             f"任务 [{task_id}] 处理完成，释放信号量，当前信号量值: {semaphore._value}",
                             command="队列处理器",
-                            task_id=task_id,
                         )
 
                         await asyncio.sleep(1)
