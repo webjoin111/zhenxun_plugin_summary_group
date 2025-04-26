@@ -1,6 +1,6 @@
-# utils/health.py
 import asyncio
 from collections.abc import Callable
+import contextlib
 from typing import Any
 
 from nonebot_plugin_apscheduler import scheduler
@@ -18,15 +18,21 @@ async def with_retry(func: Callable, max_retries: int = 3, retry_delay: int = 2)
             if attempt < max_retries - 1:
                 delay = retry_delay * (2**attempt)
                 logger.warning(
-                    f"操作失败 ({attempt + 1}/{max_retries})，将在 {delay} 秒后重试: {e}", command="with_retry", e=e
+                    f"操作失败 ({attempt + 1}/{max_retries})，将在 {delay} 秒后重试",
+                    "with_retry",
+                    e=e,
                 )
                 await asyncio.sleep(delay)
             else:
-                logger.error(f"操作失败，已达到最大重试次数 ({max_retries}): {e}", command="with_retry", e=e)
+                logger.error(
+                    f"操作失败，已达到最大重试次数 ({max_retries})",
+                    "with_retry",
+                    e=e,
+                )
                 raise
 
 
-async def check_system_health():
+async def check_system_health() -> dict:
     import asyncio
 
     from .scheduler import process_summary_queue, summary_queue, task_processor_started
@@ -54,7 +60,9 @@ async def check_system_health():
             health_status["errors"] = [f"启动调度器失败: {e!s}"]
 
     all_tasks = asyncio.all_tasks()
-    processor_tasks = [t for t in all_tasks if t.get_name() == "summary_queue_processor"]
+    processor_tasks = [
+        t for t in all_tasks if t.get_name() == "summary_queue_processor"
+    ]
 
     health_status["task_queue"]["processor_count"] = len(processor_tasks)
 
@@ -74,7 +82,9 @@ async def check_system_health():
                 health_status["warnings"].append("队列处理器任务已完成")
 
                 if task.exception():
-                    health_status["warnings"].append(f"队列处理器异常: {task.exception()}")
+                    health_status["warnings"].append(
+                        f"队列处理器异常: {task.exception()}"
+                    )
 
                 try:
                     queue_task = asyncio.create_task(process_summary_queue())
@@ -82,11 +92,16 @@ async def check_system_health():
                     health_status["repairs_applied"].append("已重启队列处理器")
                 except Exception as e:
                     existing_errors = health_status.get("errors", [])
-                    health_status["errors"] = [*existing_errors, f"重启队列处理器失败: {e!s}"]
+                    health_status["errors"] = [
+                        *existing_errors,
+                        f"重启队列处理器失败: {e!s}",
+                    ]
 
     store = Store()
     group_ids = store.get_all_groups()
-    scheduled_job_ids = [job.id for job in scheduler.get_jobs() if job.id.startswith("summary_group_")]
+    scheduled_job_ids = [
+        job.id for job in scheduler.get_jobs() if job.id.startswith("summary_group_")
+    ]
 
     missing_jobs = []
     for group_id in group_ids:
@@ -108,14 +123,13 @@ async def check_system_health():
 
         removed_count = 0
         for job_id in orphaned_jobs:
-            try:
+            with contextlib.suppress(Exception):
                 scheduler.remove_job(job_id)
                 removed_count += 1
-            except Exception:
-                pass
-
         if removed_count > 0:
-            health_status["repairs_applied"].append(f"已移除 {removed_count} 个孤立的调度任务")
+            health_status["repairs_applied"].append(
+                f"已移除 {removed_count} 个孤立的调度任务"
+            )
 
     health_status["healthy"] = (
         not health_status.get("errors")
@@ -124,5 +138,5 @@ async def check_system_health():
         and task_processor_started
     )
 
-    logger.debug(f"系统健康检查结果: {health_status}", command="check_system_health")
+    logger.debug(f"系统健康检查结果: {health_status}", "check_system_health")
     return health_status

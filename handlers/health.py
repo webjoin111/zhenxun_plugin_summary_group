@@ -1,40 +1,37 @@
-# handlers/health.py
 import asyncio
+import contextlib
 import traceback
 
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, PrivateMessageEvent
+
+# 备注：
+# 自己把全部的event改成session获取吧
+# 不要从nonebot.adapters.onebot.v11导入，而是使用nonebot.adapters
 from nonebot_plugin_alconna.uniseg import MsgTarget
 
 from zhenxun.services.log import logger
 
 from ..store import Store
 from ..utils.health import check_system_health
-from ..utils.scheduler import (
-    process_summary_queue,
-)
+from ..utils.scheduler import process_summary_queue
 
 
 async def handle_health_check(
-    bot: Bot,
-    event: GroupMessageEvent | PrivateMessageEvent,
-    target: MsgTarget
+    bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget
 ):
-
     try:
         user_id = event.get_user_id()
-        logger.debug(f"用户 {user_id} 触发了健康检查命令", command="健康检查", session=user_id)
+        logger.debug(f"用户 {user_id} 触发了健康检查命令", "健康检查", session=user_id)
 
         await bot.send(event, "正在进行系统健康检查，请稍候...")
 
         health_result = await check_system_health()
 
-        status_message = "【总结系统健康状态】\n"
-
-        if health_result.get("healthy", False):
-            status_message += "✅ 系统状态: 正常\n"
-        else:
-            status_message += "⚠️ 系统状态: 异常\n"
-
+        status_message = "【总结系统健康状态】\n" + (
+            "✅ 系统状态: 正常\n"
+            if health_result.get("healthy", False)
+            else "⚠️ 系统状态: 异常\n"
+        )
         scheduler_status = health_result.get("scheduler", {})
         status_message += f"📅 调度器: {'运行中' if scheduler_status.get('running', False) else '已停止'}\n"
         status_message += f"⏱️ 定时任务数量: {scheduler_status.get('jobs_count', 0)}\n"
@@ -47,20 +44,17 @@ async def handle_health_check(
         group_count = len(store.get_all_groups())
         status_message += f"💾 已配置群组数: {group_count}\n"
 
-        warnings = health_result.get("warnings", [])
-        if warnings:
+        if warnings := health_result.get("warnings", []):
             status_message += "\n⚠️ 警告信息:\n"
             for warning in warnings:
                 status_message += f"- {warning}\n"
 
-        errors = health_result.get("errors", [])
-        if errors:
+        if errors := health_result.get("errors", []):
             status_message += "\n❌ 错误信息:\n"
             for error in errors:
                 status_message += f"- {error}\n"
 
-        repairs = health_result.get("repairs_applied", [])
-        if repairs:
+        if repairs := health_result.get("repairs_applied", []):
             status_message += "\n🔧 已应用修复:\n"
             for repair in repairs:
                 status_message += f"- {repair}\n"
@@ -69,30 +63,26 @@ async def handle_health_check(
 
     except Exception as e:
         user_id = event.get_user_id()
-        logger.error(f"执行健康检查时发生错误: {e}", command="健康检查", session=user_id, e=e)
-        logger.error(traceback.format_exc(), command="健康检查", session=user_id)
+        logger.error(f"执行健康检查时发生错误: {e}", "健康检查", session=user_id, e=e)
+        logger.error(traceback.format_exc(), "健康检查", session=user_id)
         await bot.send(event, f"健康检查失败: {e!s}")
 
 
 async def handle_system_repair(
-    bot: Bot,
-    event: GroupMessageEvent | PrivateMessageEvent,
-    target: MsgTarget
+    bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget
 ):
     from nonebot_plugin_apscheduler import scheduler
 
     user_id = event.get_user_id()
-    logger.debug(f"用户 {user_id} 触发了系统修复命令", command="系统修复", session=user_id)
+    logger.debug(f"用户 {user_id} 触发了系统修复命令", "系统修复", session=user_id)
 
     await bot.send(event, "正在执行系统修复操作，请稍候...")
 
     try:
-
         repairs_applied = []
         errors = []
 
         try:
-
             all_tasks = asyncio.all_tasks()
             processor_tasks = [
                 t for t in all_tasks if t.get_name() == "summary_queue_processor"
@@ -100,21 +90,18 @@ async def handle_system_repair(
 
             for task in processor_tasks:
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
                     await asyncio.wait_for(task, timeout=2.0)
-                except (asyncio.CancelledError, asyncio.TimeoutError):
-                    pass
-
             queue_task = asyncio.create_task(process_summary_queue())
             queue_task.set_name("summary_queue_processor")
             global task_processor_started
             task_processor_started = True
 
             repairs_applied.append("队列处理器已重启")
-            logger.debug("队列处理器已成功重启", command="系统修复", session=user_id)
+            logger.debug("队列处理器已成功重启", "系统修复", session=user_id)
         except Exception as e:
             errors.append(f"重启队列处理器失败: {e!s}")
-            logger.error(f"重启队列处理器时出错: {e}", command="系统修复", session=user_id, e=e)
+            logger.error(f"重启队列处理器时出错: {e}", "系统修复", session=user_id, e=e)
 
         try:
             if not scheduler.running:
@@ -122,20 +109,23 @@ async def handle_system_repair(
                 repairs_applied.append("调度器已启动")
         except Exception as e:
             errors.append(f"启动调度器失败: {e!s}")
-            logger.error(f"启动调度器时出错: {e}", command="系统修复", session=user_id, e=e)
+            logger.error(f"启动调度器时出错: {e}", "系统修复", session=user_id, e=e)
 
+        store = Store()
         try:
-            store = Store()
             cleaned_count = store.cleanup_invalid_groups()
             if cleaned_count > 0:
                 repairs_applied.append(f"已清理 {cleaned_count} 个无效群组配置")
-                logger.debug(f"已清理 {cleaned_count} 个无效群组配置", command="系统修复", session=user_id)
+                logger.debug(
+                    f"已清理 {cleaned_count} 个无效群组配置",
+                    "系统修复",
+                    session=user_id,
+                )
         except Exception as e:
             errors.append(f"清理存储数据失败: {e!s}")
-            logger.error(f"清理存储数据时出错: {e}", command="系统修复", session=user_id, e=e)
+            logger.error(f"清理存储数据时出错: {e}", "系统修复", session=user_id, e=e)
 
         try:
-
             group_ids = store.get_all_groups()
 
             scheduled_jobs = scheduler.get_jobs()
@@ -162,8 +152,7 @@ async def handle_system_repair(
                         from ..utils.scheduler import update_single_group_schedule
 
                         group_id = int(group_id_str)
-                        data = store.get(group_id)
-                        if data:
+                        if data := store.get(group_id):
                             success, _ = await update_single_group_schedule(
                                 group_id, data
                             )
@@ -172,17 +161,17 @@ async def handle_system_repair(
                     except Exception as e:
                         logger.error(
                             f"重建群 {group_id_str} 的定时任务失败: {e}",
-                            command="系统修复",
+                            "系统修复",
                             session=user_id,
-                            e=e
+                            e=e,
                         )
 
                 if recreated_count > 0:
                     repairs_applied.append(f"已重建 {recreated_count} 个缺失的定时任务")
                     logger.debug(
                         f"已重建 {recreated_count} 个缺失的定时任务",
-                        command="系统修复",
-                        session=user_id
+                        "系统修复",
+                        session=user_id,
                     )
 
             if orphaned_jobs:
@@ -194,21 +183,23 @@ async def handle_system_repair(
                     except Exception as e:
                         logger.error(
                             f"移除孤立任务 {job_id} 失败: {e}",
-                            command="系统修复",
+                            "系统修复",
                             session=user_id,
-                            e=e
+                            e=e,
                         )
 
                 if removed_count > 0:
                     repairs_applied.append(f"已移除 {removed_count} 个孤立的定时任务")
                     logger.debug(
                         f"已移除 {removed_count} 个孤立的定时任务",
-                        command="系统修复",
-                        session=user_id
+                        "系统修复",
+                        session=user_id,
                     )
         except Exception as e:
             errors.append(f"修复任务调度问题失败: {e!s}")
-            logger.error(f"修复任务调度问题时出错: {e}", command="系统修复", session=user_id, e=e)
+            logger.error(
+                f"修复任务调度问题时出错: {e}", "系统修复", session=user_id, e=e
+            )
 
         try:
             health_result = await check_system_health()
@@ -216,7 +207,7 @@ async def handle_system_repair(
                 repairs_applied.extend(health_result["repairs_applied"])
         except Exception as e:
             errors.append(f"执行健康检查失败: {e!s}")
-            logger.error(f"执行健康检查时出错: {e}", command="系统修复", session=user_id, e=e)
+            logger.error(f"执行健康检查时出错: {e}", "系统修复", session=user_id, e=e)
 
         if repairs_applied or errors:
             response = "【系统修复报告】\n"
@@ -242,6 +233,6 @@ async def handle_system_repair(
 
     except Exception as e:
         user_id = event.get_user_id()
-        logger.error(f"执行系统修复时发生错误: {e}", command="系统修复", session=user_id, e=e)
-        logger.error(traceback.format_exc(), command="系统修复", session=user_id)
+        logger.error(f"执行系统修复时发生错误: {e}", "系统修复", session=user_id, e=e)
+        logger.error(traceback.format_exc(), "系统修复", session=user_id)
         await bot.send(event, f"执行系统修复失败: {e!s}")

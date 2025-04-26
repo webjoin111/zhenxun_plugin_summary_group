@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from nonebot.adapters.onebot.v11 import Bot
+from nonebot.adapters import Bot
 from nonebot_plugin_alconna.uniseg import MsgTarget, UniMessage
 
 from zhenxun.configs.config import Config
@@ -43,11 +43,11 @@ async def messages_summary(
     style: str | None = None,
 ) -> str:
     if not messages:
-        logger.warning("没有足够的聊天记录可供总结", command="messages_summary")
+        logger.warning("没有足够的聊天记录可供总结", "messages_summary")
         return "没有足够的聊天记录可供总结。"
 
     prompt_parts = []
-    group_id = target.id if not target.private else None
+    group_id = None if target.private else target.id
 
     final_style = style
     if not final_style and group_id:
@@ -58,7 +58,10 @@ async def messages_summary(
 
     if final_style:
         prompt_parts.append(f"重要指令：请严格使用 '{final_style}' 的风格进行总结。")
-        logger.debug(f"最终应用总结风格: '{final_style}' (置于Prompt开头)", command="messages_summary")
+        logger.debug(
+            f"最终应用总结风格: '{final_style}' (置于Prompt开头)",
+            "messages_summary",
+        )
 
     if target_user_names:
         user_list_str = ", ".join(target_user_names)
@@ -79,24 +82,28 @@ async def messages_summary(
 
         logger.debug(
             f"为指定用户生成总结, 用户: {user_list_str}, 内容过滤: '{content or '无'}'",
-            command="messages_summary",
+            "messages_summary",
         )
     elif content:
         prompt_parts.append(f"任务：请详细总结以下对话中仅与'{content}'相关的内容。")
-        logger.debug(f"为指定内容 '{content}' 生成总结", command="messages_summary")
+        logger.debug(f"为指定内容 '{content}' 生成总结", "messages_summary")
     else:
         prompt_parts.append("任务：请分析并总结以下聊天记录的主要讨论内容和信息脉络。")
-        logger.debug("生成通用群聊总结", command="messages_summary")
+        logger.debug("生成通用群聊总结", "messages_summary")
 
     prompt_parts.append("要求：排版需层次清晰，用中文回答。请包含谁说了什么重要内容。")
 
     final_prompt = "\n\n".join(prompt_parts)
 
-    logger.debug(f"最终构建的 Prompt: {final_prompt}", command="messages_summary")
+    logger.debug(f"最终构建的 Prompt: {final_prompt}", "messages_summary")
 
-    final_model_name_str = Config.get_config("summary_group", "CURRENT_ACTIVE_MODEL_NAME")
+    final_model_name_str = Config.get_config(
+        "summary_group", "CURRENT_ACTIVE_MODEL_NAME"
+    )
     if group_id:
-        group_specific_model = store.get_group_setting(str(group_id), "default_model_name")
+        group_specific_model = store.get_group_setting(
+            str(group_id), "default_model_name"
+        )
         if group_specific_model:
             from ..handlers.model_control import find_model, parse_provider_model_string
 
@@ -118,7 +125,7 @@ async def messages_summary(
         except ModelException:
             raise
         except Exception as e:
-            logger.error(f"生成总结失败 (invoke_model): {e}", command="messages_summary", e=e)
+            logger.error(f"生成总结失败 (invoke_model): {e}", "messages_summary", e=e)
             raise ModelException(f"生成总结时发生内部错误: {e!s}") from e
 
     try:
@@ -132,12 +139,12 @@ async def messages_summary(
 
         return summary_text
     except ModelException as e:
-        logger.error(f"总结生成失败，已达最大重试次数: {e}", command="messages_summary", e=e)
+        logger.error(f"总结生成失败，已达最大重试次数: {e}", "messages_summary", e=e)
         raise
     except Exception as e:
         logger.error(
             f"总结生成过程中出现意外错误 (with_retry): {e}",
-            command="messages_summary",
+            "messages_summary",
             e=e,
         )
         raise ModelException(f"总结生成失败: {e!s}")
@@ -160,16 +167,13 @@ async def generate_image(summary: str) -> bytes:
             css_file = "vscode-light.css"
 
         css_path = (Path(__file__).parent.parent / "assert" / css_file).resolve()
-        logger.debug(f"使用主题 {theme or '默认'} 生成图片", command="图片生成")
-        img = await md_to_pic(md=summary, css_path=css_path, width=850)
-
-        return img
+        logger.debug(f"使用主题 {theme or '默认'} 生成图片", "图片生成")
+        return await md_to_pic(md=summary, css_path=str(css_path), width=850)
     except Exception as e:
-        if not isinstance(e, ImageGenerationException):
-            logger.error(f"生成图片过程中发生意外错误: {e}", command="图片生成", e=e)
-            raise ImageGenerationException(f"图片生成失败: {e!s}")
-        else:
+        if isinstance(e, ImageGenerationException):
             raise
+        logger.error(f"生成图片过程中发生意外错误: {e}", "图片生成", e=e)
+        raise ImageGenerationException(f"图片生成失败: {e!s}")
 
 
 async def generate_help_image(_: str = "") -> bytes:
@@ -271,7 +275,7 @@ _由 群聊总结插件 v{base_config.get("version", "2.0")} 生成_
 
         css_file = "github-markdown-dark.css"
         theme = base_config.get("summary_theme", "vscode_dark")
-        logger.debug(f"从配置中获取主题设置: {theme}", command="总结帮助")
+        logger.debug(f"从配置中获取主题设置: {theme}", "总结帮助")
 
         if theme == "light":
             css_file = "github-markdown-light.css"
@@ -285,24 +289,26 @@ _由 群聊总结插件 v{base_config.get("version", "2.0")} 生成_
         css_path = (Path(__file__).parent.parent / "assert" / css_file).resolve()
 
         if not css_path.exists():
-            logger.warning(f"CSS文件 {css_file} 不存在，将使用默认样式", command="总结帮助")
+            logger.warning(f"CSS文件 {css_file} 不存在，将使用默认样式", "总结帮助")
             css_file = "github-markdown-dark.css"
             css_path = (Path(__file__).parent.parent / "assert" / css_file).resolve()
 
             if not css_path.exists():
-                logger.warning("默认CSS文件也不存在，将不使用自定义CSS", command="总结帮助")
+                logger.warning("默认CSS文件也不存在，将不使用自定义CSS", "总结帮助")
                 css_path = None
 
-        logger.debug(f"使用主题 {theme or '默认'} 生成帮助文档图片，CSS路径: {css_path}", command="总结帮助")
+        logger.debug(
+            f"使用主题 {theme or '默认'} 生成帮助文档图片，CSS路径: {css_path}",
+            "总结帮助",
+        )
 
-        if css_path and css_path.exists():
-            img = await md_to_pic(md=styled_md, css_path=css_path, width=850)
-        else:
-            img = await md_to_pic(md=styled_md, width=850)
-        return img
-
+        return (
+            await md_to_pic(md=styled_md, css_path=str(css_path), width=850)
+            if css_path and css_path.exists()
+            else await md_to_pic(md=styled_md, width=850)
+        )
     except Exception as e:
-        logger.error(f"生成帮助文档图片失败: {e}", command="总结帮助", e=e)
+        logger.error(f"生成帮助文档图片失败: {e}", "总结帮助", e=e)
         raise ImageGenerationException(f"生成帮助文档图片失败: {e!s}")
 
 
@@ -321,12 +327,12 @@ async def send_summary(bot: Bot, target: MsgTarget, summary: str) -> bool:
                 if not fallback_enabled:
                     logger.error(
                         f"图片生成失败且未启用文本回退: {e}",
-                        command="send_summary",
+                        "send_summary",
                         e=e,
                     )
                     return False
 
-                logger.warning(f"图片生成失败，已启用文本回退: {e}", command="send_summary")
+                logger.warning(f"图片生成失败，已启用文本回退: {e}", "send_summary")
 
         if reply_msg is None:
             error_prefix = ""
@@ -344,18 +350,18 @@ async def send_summary(bot: Bot, target: MsgTarget, summary: str) -> bool:
             full_text = f"{error_prefix}{plain_summary}"
 
             if len(full_text) > max_text_length:
-                full_text = full_text[:max_text_length] + "...(内容过长已截断)"
+                full_text = f"{full_text[:max_text_length]}...(内容过长已截断)"
             reply_msg = UniMessage.text(full_text)
 
         if reply_msg:
             await reply_msg.send(target, bot)
 
-            logger.info(f"总结已发送，类型: {output_type or 'text'}", command="send_summary")
+            logger.info(f"总结已发送，类型: {output_type or 'text'}", "send_summary")
             return True
 
-        logger.error("无法发送总结：回复消息为空", command="send_summary")
+        logger.error("无法发送总结：回复消息为空", "send_summary")
         return False
 
     except Exception as e:
-        logger.error(f"发送总结失败: {e}", command="send_summary", e=e)
+        logger.error(f"发送总结失败: {e}", "send_summary", e=e)
         return False

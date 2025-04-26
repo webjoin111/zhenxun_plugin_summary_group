@@ -35,14 +35,20 @@ def get_configured_providers() -> list[ProviderConfig]:
                 provider_conf = ProviderConfig(**item)
 
                 if not all(
-                    [provider_conf.name, provider_conf.api_key, provider_conf.api_base, provider_conf.models]
+                    [
+                        provider_conf.name,
+                        provider_conf.api_key,
+                        provider_conf.api_base,
+                        provider_conf.models,
+                    ]
                 ):
                     logger.warning(
                         f"配置文件中第 {i + 1} 个 Provider 缺少必要的字段 (name, api_key, api_base, models)，已跳过。"
                     )
                     continue
                 if not provider_conf.api_key or (
-                    isinstance(provider_conf.api_key, list) and not any(provider_conf.api_key)
+                    isinstance(provider_conf.api_key, list)
+                    and not any(provider_conf.api_key)
                 ):
                     logger.warning(
                         f"配置文件中第 {i + 1} 个 Provider 的 api_key 无效 (为空或空列表)，已跳过。"
@@ -56,13 +62,19 @@ def get_configured_providers() -> list[ProviderConfig]:
 
                 providers.append(provider_conf)
             except Exception as e:
-                logger.warning(f"解析配置文件中第 {i + 1} 个 Provider 时出错: {e}，已跳过。配置: {item}")
+                logger.warning(
+                    f"解析配置文件中第 {i + 1} 个 Provider 时出错: {e}，已跳过。配置: {item}"
+                )
         else:
-            logger.warning(f"配置文件 SUMMARY_PROVIDERS 中第 {i + 1} 项不是字典格式，已跳过。")
+            logger.warning(
+                f"配置文件 SUMMARY_PROVIDERS 中第 {i + 1} 项不是字典格式，已跳过。"
+            )
     return providers
 
 
-def find_model(provider_name: str, model_detail_name: str) -> tuple[ProviderConfig, ModelDetail] | None:
+def find_model(
+    provider_name: str, model_detail_name: str
+) -> tuple[ProviderConfig, ModelDetail] | None:
     """在配置中查找指定的 Provider 和 ModelDetail"""
     providers = get_configured_providers()
     for provider in providers:
@@ -118,7 +130,9 @@ def init_current_model() -> str | None:
             logger.info(f"默认模型 '{default_name}' 已加载。")
             return default_name
         else:
-            logger.warning(f"配置的默认模型 '{default_name}' 在模型列表中未找到，将使用第一个可用模型。")
+            logger.warning(
+                f"配置的默认模型 '{default_name}' 在模型列表中未找到，将使用第一个可用模型。"
+            )
             return models[0].name
     else:
         logger.info("未指定默认模型，将使用第一个可用模型。")
@@ -143,7 +157,9 @@ def handle_switch_model(provider_model_name: str) -> tuple[bool, str]:
                 f"错误：未找到名为 '{provider_name}' 的 Provider。\n可用 Providers 有: {available_providers}",
             )
         else:
-            target_provider = next(p for p in providers if p.name.lower() == provider_name.lower())
+            target_provider = next(
+                p for p in providers if p.name.lower() == provider_name.lower()
+            )
             available_models = ", ".join([m.model_name for m in target_provider.models])
             return (
                 False,
@@ -182,16 +198,25 @@ def validate_active_model_on_startup():
         first_provider_name = providers[0].name
         first_model_name = providers[0].models[0].model_name
         fallback_name = f"{first_provider_name}/{first_model_name}"
-        logger.warning(f"当前激活模型和默认模型均无效或未设置，回退到第一个可用模型: {fallback_name}")
+        logger.warning(
+            f"当前激活模型和默认模型均无效或未设置，回退到第一个可用模型: {fallback_name}"
+        )
         final_name_to_set = fallback_name
         validated = True
 
     if not validated:
-        logger.error("启动错误：未配置任何有效模型 (SUMMARY_PROVIDERS)，无法设置激活模型。")
+        logger.error(
+            "启动错误：未配置任何有效模型 (SUMMARY_PROVIDERS)，无法设置激活模型。"
+        )
         final_name_to_set = None
 
     if final_name_to_set != current_active_name_str:
-        Config.set_config("summary_group", "CURRENT_ACTIVE_MODEL_NAME", final_name_to_set, auto_save=True)
+        Config.set_config(
+            "summary_group",
+            "CURRENT_ACTIVE_MODEL_NAME",
+            final_name_to_set,
+            auto_save=True,
+        )
         if final_name_to_set:
             logger.info(f"已将当前激活模型配置更新为: {final_name_to_set}")
         else:
@@ -212,7 +237,11 @@ def handle_list_models(current_active_name_str: str | None) -> str:
 
     for provider in providers:
         message += f"\nProvider: {provider.name}"
-        if default_prov and provider.name.lower() == default_prov.lower() and not default_mod:
+        if (
+            default_prov
+            and provider.name.lower() == default_prov.lower()
+            and not default_mod
+        ):
             message += " [默认 Provider]"
         message += "\n"
 
@@ -254,7 +283,9 @@ def get_model_instance_by_name(active_model_name_str: str | None) -> "Model":
     """根据指定的 ProviderName/ModelName 字符串实例化模型"""
     from ..model import LLMModel, ModelException
 
-    logger.debug(f"[get_model_instance_by_name] 尝试实例化模型: {active_model_name_str}")
+    logger.debug(
+        f"[get_model_instance_by_name] 尝试实例化模型: {active_model_name_str}"
+    )
 
     selected_provider = None
     selected_model_detail = None
@@ -262,41 +293,55 @@ def get_model_instance_by_name(active_model_name_str: str | None) -> "Model":
     prov_name, mod_name = parse_provider_model_string(active_model_name_str)
 
     if prov_name and mod_name:
-        found = find_model(prov_name, mod_name)
-        if found:
+        if found := find_model(prov_name, mod_name):
             selected_provider, selected_model_detail = found
         else:
-            logger.warning(f"[get_model_instance_by_name] 无法找到模型 '{active_model_name_str}' 的配置。")
+            logger.warning(
+                f"[get_model_instance_by_name] 无法找到模型 '{active_model_name_str}' 的配置。"
+            )
             # 这里不再回退，因为调用者应该已经处理了回退逻辑
             # 如果需要，可以在这里再次尝试默认或第一个，但这会使逻辑重复
             # 更好的方式是调用者确保传入有效的 name_str 或 None
             raise ModelException(f"无法找到指定的模型配置: {active_model_name_str}")
 
-
     # 如果传入的 name_str 本身就是 None，或者解析后找不到，则需要回退
     # （但理论上调用者应该处理好这种情况）
     if not selected_provider:
-         providers = get_configured_providers()
-         if providers and providers[0].models:
-              selected_provider = providers[0]
-              selected_model_detail = providers[0].models[0]
-              fallback_name = f"{selected_provider.name}/{selected_model_detail.model_name}"
-              logger.warning(f"[get_model_instance_by_name] 接收到无效或None的模型名，回退到第一个模型: {fallback_name}")
-         else:
-              logger.critical("[get_model_instance_by_name] 无法找到任何可用模型配置！")
-              raise ModelException("错误：未配置任何有效的 AI 模型。")
-
+        providers = get_configured_providers()
+        if providers and providers[0].models:
+            selected_provider = providers[0]
+            selected_model_detail = providers[0].models[0]
+            fallback_name = (
+                f"{selected_provider.name}/{selected_model_detail.model_name}"
+            )
+            logger.warning(
+                f"[get_model_instance_by_name] 接收到无效或None的模型名，回退到第一个模型: {fallback_name}"
+            )
+        else:
+            logger.error("[get_model_instance_by_name] 无法找到任何可用模型配置！")
+            raise ModelException("错误：未配置任何有效的 AI 模型。")
 
     # 确定最终参数 (逻辑与旧 detect_model 类似)
     final_api_keys = selected_provider.api_key
     final_api_base = selected_provider.api_base
+    assert selected_model_detail is not None
     final_model_name = selected_model_detail.model_name
     final_api_type = selected_provider.api_type
     final_openai_compat = selected_provider.openai_compat
-    final_temperature = selected_model_detail.temperature if selected_model_detail.temperature is not None else selected_provider.temperature
-    final_max_tokens = selected_model_detail.max_tokens if selected_model_detail.max_tokens is not None else selected_provider.max_tokens
+    final_temperature = (
+        selected_model_detail.temperature
+        if selected_model_detail.temperature is not None
+        else selected_provider.temperature
+    )
+    final_max_tokens = (
+        selected_model_detail.max_tokens
+        if selected_model_detail.max_tokens is not None
+        else selected_provider.max_tokens
+    )
 
-    logger.debug(f"[get_model_instance_by_name] 最终选定 Provider: {selected_provider.name}, Model: {final_model_name}")
+    logger.debug(
+        f"[get_model_instance_by_name] 最终选定 Provider: {selected_provider.name}, Model: {final_model_name}"
+    )
 
     # 获取通用配置
     proxy = base_config.get("PROXY")
@@ -320,7 +365,7 @@ def get_model_instance_by_name(active_model_name_str: str | None) -> "Model":
             retry_delay=retry_delay,
         )
     except Exception as e:
-        logger.error(f"[get_model_instance_by_name] 实例化 LLMModel 时出错: {e}", exc_info=True)
+        logger.error("[get_model_instance_by_name] 实例化 LLMModel 时出错", e=e)
         raise ModelException(f"初始化模型时发生错误: {e}")
 
 
