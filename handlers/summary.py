@@ -337,7 +337,6 @@ async def handle_summary(
                 group_id=target_group_id_to_fetch,
                 e=e,
             )
-            await UniMessage.text(f"生成总结失败: {e!s}").send(target)
             return
         except Exception as e:
             logger.error(
@@ -346,21 +345,23 @@ async def handle_summary(
                 group_id=target_group_id_to_fetch,
                 e=e,
             )
-            await UniMessage.text("生成总结失败，请稍后再试。").send(target)
             return
 
         success = await send_summary(bot, target, summary)
 
         if success:
             logger.debug(
-                f"成功完成群 {target_group_id_to_fetch} 的总结命令 (请求来源: {originating_group_id or '私聊'})，准备记录统计",
+                f"成功完成群 {target_group_id_to_fetch} 的总结命令 "
+                f"(请求来源: {originating_group_id or '私聊'})，准备记录统计",
                 command="总结",
                 group_id=originating_group_id,
             )
             try:
                 await Statistics.create(
                     user_id=str(user_id_str),
-                    group_id=str(originating_group_id) if originating_group_id else None,
+                    group_id=(
+                        str(originating_group_id) if originating_group_id else None
+                    ),
                     plugin_name="summary_group",
                     bot_id=str(bot.self_id),
                     message_count=message_count,
@@ -369,11 +370,17 @@ async def handle_summary(
                     content_filter=content_value,
                 )
                 logger.debug(
-                    f"记录插件调用统计成功: user={user_id_str}, group={originating_group_id or '私聊'}, summarized_group={target_group_id_to_fetch}",
+                    f"记录插件调用统计成功: user={user_id_str}, "
+                    f"group={originating_group_id or '私聊'}, "
+                    f"summarized_group={target_group_id_to_fetch}",
                     command="总结",
                 )
             except Exception as stat_e:
-                logger.error(f"记录插件调用统计失败: {stat_e}", command="总结", e=stat_e)
+                logger.error(
+                    f"记录插件调用统计失败: {stat_e}",
+                    command="总结",
+                    e=stat_e
+                )
             logger.debug(
                 f"成功完成群 {target_group_id_to_fetch} 的总结命令",
                 command="总结",
@@ -394,12 +401,3 @@ async def handle_summary(
             group_id=originating_group_id,
             exc_info=True,
         )
-        try:
-            await UniMessage.text(f"处理总结命令时出错: {e!s}").send(target)
-        except Exception:
-            logger.error(
-                "发送最终错误消息失败",
-                command="总结",
-                session=user_id_str,
-                group_id=originating_group_id,
-            )
