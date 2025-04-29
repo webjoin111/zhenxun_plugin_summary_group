@@ -10,9 +10,7 @@ base_config = Config.get("summary_group")
 ai_config = Config.get("AI")
 
 from ..model import ModelException
-from ..store import Store
-
-store = Store()
+from ..store import store
 
 md_to_pic = None
 if base_config.get("summary_output_type") == "image":

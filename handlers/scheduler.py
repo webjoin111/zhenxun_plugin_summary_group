@@ -14,7 +14,7 @@ from zhenxun.services.log import logger
 
 base_config = Config.get("summary_group")
 
-from ..store import Store
+from ..store import store
 from ..utils.scheduler import (
     SummaryException,
     check_scheduler_status,
@@ -102,7 +102,7 @@ async def handle_global_summary_set(
     )
 
     try:
-        store = Store()
+        # store 已经从模块导入，不需要再实例化
 
         group_list = await bot.get_group_list()
         group_ids = [group["group_id"] for group in group_list]
@@ -122,7 +122,7 @@ async def handle_global_summary_set(
         for group_id in group_ids:
             try:
                 group_id = int(group_id)
-                store.set(group_id, data)
+                await store.set(group_id, data)
 
                 job_id = f"summary_group_{group_id}"
                 try:
@@ -373,7 +373,7 @@ async def handle_summary_set(
         await UniMessage.text(f"处理命令时发生意外错误: {e!s} 请检查日志").send(target)
 
 
-async def handle_global_summary_remove(store: Store) -> tuple[bool, str, int, int]:
+async def handle_global_summary_remove() -> tuple[bool, str, int, int]:
     from nonebot_plugin_apscheduler import scheduler
 
     logger.debug("执行取消所有群组的定时总结", command="全局定时总结")
@@ -419,7 +419,7 @@ async def handle_global_summary_remove(store: Store) -> tuple[bool, str, int, in
             except ValueError:
                 logger.warning(f"无效的群号: {group_id_str}", command="全局定时总结")
 
-        store.remove_all()
+        await store.remove_all()
         logger.debug("已清空所有群组的定时总结设置", command="全局定时总结")
 
         remaining_jobs = [job for job in scheduler.get_jobs() if job.id.startswith("summary_group_")]
@@ -591,7 +591,7 @@ async def handle_summary_remove(
 
     try:
         if action_type == "all":
-            success, message, removed_count, total_count = await handle_global_summary_remove(Store())
+            success, message, removed_count, total_count = await handle_global_summary_remove()
             if success:
                 await UniMessage.text(message).send(target)
                 logger.info(
@@ -723,7 +723,7 @@ async def handle_summary_status(bot: Bot, event: GroupMessageEvent | PrivateMess
     user_id = event.get_user_id()
     logger.debug(f"用户 {user_id} 在群 {group_id} 查询总结状态", command="总结状态")
 
-    store = Store()
+    # store 已经从模块导入，不需要再实例化
     data = store.get(group_id)
 
     if data:

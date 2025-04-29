@@ -798,7 +798,7 @@ async def _(
 
 @driver.on_startup
 async def startup():
-    set_scheduler()
+    await set_scheduler()
     validate_active_model_on_startup()
     final_active_model = Config.get_config("summary_group", "CURRENT_ACTIVE_MODEL_NAME")
     logger.info(

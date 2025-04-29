@@ -7,7 +7,7 @@ from nonebot_plugin_apscheduler import scheduler
 
 from zhenxun.services.log import logger
 
-from ..store import Store
+from ..store import store
 
 
 async def with_retry(func: Callable, max_retries: int = 3, retry_delay: int = 2) -> Any:
@@ -84,7 +84,7 @@ async def check_system_health():
                     existing_errors = health_status.get("errors", [])
                     health_status["errors"] = [*existing_errors, f"重启队列处理器失败: {e!s}"]
 
-    store = Store()
+    # store 已经从模块导入，不需要再实例化
     group_ids = store.get_all_groups()
     scheduled_job_ids = [job.id for job in scheduler.get_jobs() if job.id.startswith("summary_group_")]
 
