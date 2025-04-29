@@ -8,6 +8,16 @@ class ScheduleException(SummaryException):
     pass
 
 
+class SchedulerException(SummaryException):
+    """调度器相关的异常"""
+    pass
+
+
+class TimeParseException(SummaryException):
+    """时间解析相关的异常"""
+    pass
+
+
 class ModelException(SummaryException):
     """模型相关的异常"""
     pass

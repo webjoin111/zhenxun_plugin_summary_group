@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 
 from nonebot.adapters.onebot.v11 import Bot
@@ -127,6 +128,7 @@ async def process_message(
     logger.debug(
         f"开始处理群 {group_id} 的 {len(messages)} 条原始消息",
         command="消息处理",
+        group_id=group_id,
     )
     try:
         if not messages:
@@ -135,30 +137,54 @@ async def process_message(
         exclude_bot = base_config.get("EXCLUDE_BOT_MESSAGES", False)
         bot_self_id = bot.self_id
 
-        user_info_cache: dict[str, str] = {}
-        user_ids_to_fetch = {
-            str(msg.get("user_id")) for msg in messages if msg.get("user_id")
-        }
+        user_ids_to_fetch: set[str] = set()
+        for msg in messages:
+            sender_id = msg.get("user_id")
+            if sender_id:
+                user_ids_to_fetch.add(str(sender_id))
+            raw_segments = msg.get("message", [])
+            for segment in raw_segments:
+                if isinstance(segment, dict):
+                    seg_type = segment.get("type")
+                    seg_data = segment.get("data", {})
+                    if seg_type == "at" and "qq" in seg_data:
+                        user_ids_to_fetch.add(str(seg_data["qq"]))
 
-        for user_id_str in user_ids_to_fetch:
-            if user_id_str not in user_info_cache:
-                sender_name = f"用户_{user_id_str[-4:]}"
-                try:
-                    user_data = await PlatformUtils.get_user(
-                        bot, user_id_str, str(group_id)
-                    )
-                    if user_data:
-                        sender_name = user_data.card or user_data.name or sender_name
-                    user_info_cache[user_id_str] = sender_name
-                except Exception as e:
+        user_info_cache: dict[str, str] = {}
+        group_id_str = str(group_id)
+
+        if user_ids_to_fetch:
+            logger.debug(
+                f"需要获取 {len(user_ids_to_fetch)} 个用户的信息: {user_ids_to_fetch}",
+                group_id=group_id,
+            )
+            tasks = []
+            user_id_list = list(user_ids_to_fetch)
+            for user_id_str in user_id_list:
+                task = PlatformUtils.get_user(bot, user_id_str, group_id_str)
+                tasks.append(task)
+
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for user_id_str, result in zip(user_id_list, results):
+                fallback_name = f"用户_{user_id_str[-4:]}"
+                if isinstance(result, Exception):
                     logger.warning(
-                        f"获取用户 {user_id_str} 信息失败: {e}. 使用默认值",
+                        f"并发获取用户 {user_id_str} 信息失败: {result}. 使用默认值",
                         group_id=group_id,
-                        e=e,
+                        e=result,
                     )
-                    user_info_cache[user_id_str] = user_info_cache.get(
-                        user_id_str, f"用户_{user_id_str[-4:]}"
-                    )
+                    user_info_cache[user_id_str] = fallback_name
+                elif result:
+                    user_data = result
+                    sender_name = user_data.card or user_data.name or fallback_name
+                    user_info_cache[user_id_str] = sender_name
+                else:
+                    user_info_cache[user_id_str] = fallback_name
+            logger.debug(
+                f"用户信息并发获取完成，缓存了 {len(user_info_cache)} 个用户信息",
+                group_id=group_id,
+            )
 
         processed_log: list[dict[str, str]] = []
         for msg in messages:
@@ -168,9 +194,6 @@ async def process_message(
 
             user_id_str = str(user_id)
             if exclude_bot and user_id_str == bot_self_id:
-                logger.debug(
-                    f"排除Bot({bot_self_id})消息", command="消息处理", group_id=group_id
-                )
                 continue
 
             sender_name = user_info_cache.get(user_id_str, f"用户_{user_id_str[-4:]}")
@@ -189,23 +212,7 @@ async def process_message(
                         text_segments.append(text)
                 elif seg_type == "at" and "qq" in seg_data:
                     qq = str(seg_data["qq"])
-                    at_name = user_info_cache.get(qq)
-                    if not at_name:
-                        try:
-                            at_user_data = await PlatformUtils.get_user(
-                                bot, qq, str(group_id)
-                            )
-                            if at_user_data:
-                                at_name = (
-                                    at_user_data.card
-                                    or at_user_data.name
-                                    or f"用户_{qq[-4:]}"
-                                )
-                                user_info_cache[qq] = at_name
-                            else:
-                                at_name = f"用户_{qq[-4:]}"
-                        except Exception:
-                            at_name = f"用户_{qq[-4:]}"
+                    at_name = user_info_cache.get(qq, f"用户_{qq[-4:]}")
                     text_segments.append(f"@{at_name}")
 
             if text_segments:
@@ -224,8 +231,9 @@ async def process_message(
             command="消息处理",
             e=e,
             group_id=group_id,
+            exc_info=True,
         )
-        raise MessageProcessException(f"消息处理失败: {e!s}")
+        raise MessageProcessException(f"消息处理失败: {e!s}") from e
 
 
 async def get_group_msg_history(

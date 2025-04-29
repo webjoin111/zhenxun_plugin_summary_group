@@ -4,7 +4,9 @@ from .exceptions import (
     MessageProcessException,
     ModelException,
     ScheduleException,
+    SchedulerException,
     SummaryException,
+    TimeParseException,
 )
 from .health import (
     check_system_health,
@@ -36,7 +38,9 @@ __all__ = [
     "MessageProcessException",
     "ModelException",
     "ScheduleException",
+    "SchedulerException",
     "SummaryException",
+    "TimeParseException",
     "check_cooldown",
     "check_scheduler_status",
     "check_system_health",
