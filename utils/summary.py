@@ -8,6 +8,9 @@ from zhenxun.services.log import logger
 from .. import base_config
 from ..model import ModelException
 from ..store import store
+from .exceptions import (
+    ImageGenerationException,
+)
 
 md_to_pic = None
 if base_config.get("summary_output_type") == "image":
@@ -20,15 +23,6 @@ if base_config.get("summary_output_type") == "image":
         logger.warning(f"加载 htmlrender 失败，图片模式不可用: {e}")
 
 from .health import with_retry
-from .scheduler import SummaryException
-
-
-class MessageProcessException(SummaryException):
-    pass
-
-
-class ImageGenerationException(SummaryException):
-    pass
 
 
 async def messages_summary(
@@ -54,7 +48,10 @@ async def messages_summary(
 
     if final_style:
         prompt_parts.append(f"重要指令：请严格使用 '{final_style}' 的风格进行总结。")
-        logger.debug(f"最终应用总结风格: '{final_style}' (置于Prompt开头)", command="messages_summary")
+        logger.debug(
+            f"最终应用总结风格: '{final_style}' (置于Prompt开头)",
+            command="messages_summary",
+        )
 
     if target_user_names:
         user_list_str = ", ".join(target_user_names)
@@ -91,7 +88,9 @@ async def messages_summary(
 
     final_model_name_str = base_config.get("CURRENT_ACTIVE_MODEL_NAME")
     if group_id:
-        group_specific_model = store.get_group_setting(str(group_id), "default_model_name")
+        group_specific_model = store.get_group_setting(
+            str(group_id), "default_model_name"
+        )
         if group_specific_model:
             from ..handlers.model_control import find_model, parse_provider_model_string
 
@@ -113,7 +112,9 @@ async def messages_summary(
         except ModelException:
             raise
         except Exception as e:
-            logger.error(f"生成总结失败 (invoke_model): {e}", command="messages_summary", e=e)
+            logger.error(
+                f"生成总结失败 (invoke_model): {e}", command="messages_summary", e=e
+            )
             raise ModelException(f"生成总结时发生内部错误: {e!s}") from e
 
     try:
@@ -127,7 +128,9 @@ async def messages_summary(
 
         return summary_text
     except ModelException as e:
-        logger.error(f"总结生成失败，已达最大重试次数: {e}", command="messages_summary", e=e)
+        logger.error(
+            f"总结生成失败，已达最大重试次数: {e}", command="messages_summary", e=e
+        )
         raise
     except Exception as e:
         logger.error(
@@ -280,15 +283,22 @@ _由 群聊总结插件 v{base_config.get("version", "2.0")} 生成_
         css_path = (Path(__file__).parent.parent / "assert" / css_file).resolve()
 
         if not css_path.exists():
-            logger.warning(f"CSS文件 {css_file} 不存在，将使用默认样式", command="总结帮助")
+            logger.warning(
+                f"CSS文件 {css_file} 不存在，将使用默认样式", command="总结帮助"
+            )
             css_file = "github-markdown-dark.css"
             css_path = (Path(__file__).parent.parent / "assert" / css_file).resolve()
 
             if not css_path.exists():
-                logger.warning("默认CSS文件也不存在，将不使用自定义CSS", command="总结帮助")
+                logger.warning(
+                    "默认CSS文件也不存在，将不使用自定义CSS", command="总结帮助"
+                )
                 css_path = None
 
-        logger.debug(f"使用主题 {theme or '默认'} 生成帮助文档图片，CSS路径: {css_path}", command="总结帮助")
+        logger.debug(
+            f"使用主题 {theme or '默认'} 生成帮助文档图片，CSS路径: {css_path}",
+            command="总结帮助",
+        )
 
         if css_path and css_path.exists():
             img = await md_to_pic(md=styled_md, css_path=css_path, width=850)
@@ -321,7 +331,9 @@ async def send_summary(bot: Bot, target: MsgTarget, summary: str) -> bool:
                     )
                     return False
 
-                logger.warning(f"图片生成失败，已启用文本回退: {e}", command="send_summary")
+                logger.warning(
+                    f"图片生成失败，已启用文本回退: {e}", command="send_summary"
+                )
 
         if reply_msg is None:
             error_prefix = ""
@@ -345,7 +357,9 @@ async def send_summary(bot: Bot, target: MsgTarget, summary: str) -> bool:
         if reply_msg:
             await reply_msg.send(target, bot)
 
-            logger.info(f"总结已发送，类型: {output_type or 'text'}", command="send_summary")
+            logger.info(
+                f"总结已发送，类型: {output_type or 'text'}", command="send_summary"
+            )
             return True
 
         logger.error("无法发送总结：回复消息为空", command="send_summary")

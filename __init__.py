@@ -1,4 +1,6 @@
 from nonebot import get_driver, require
+
+driver = get_driver()
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, PrivateMessageEvent
 from nonebot.permission import SUPERUSER
 from nonebot.plugin import PluginMetadata
@@ -751,9 +753,6 @@ async def handle_system_fix(
     bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget
 ):
     await system_repair_handler_impl(bot, event, target)
-
-
-driver = get_driver()
 
 
 @summary_switch_model.handle()

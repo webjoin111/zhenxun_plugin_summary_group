@@ -11,10 +11,7 @@ from zhenxun.utils.http_utils import AsyncHttpx
 from zhenxun.utils.user_agent import get_user_agent
 
 from . import base_config
-
-
-class ModelException(Exception):
-    pass
+from .utils.exceptions import ModelException
 
 
 class ModelConfig(BaseModel):

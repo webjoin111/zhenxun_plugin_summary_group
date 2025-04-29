@@ -272,7 +272,8 @@ def handle_list_models(current_active_name_str: str | None) -> str:
 
 def get_model_instance_by_name(active_model_name_str: str | None) -> "Model":
     """根据指定的 ProviderName/ModelName 字符串实例化模型"""
-    from ..model import LLMModel, ModelException
+    from ..model import LLMModel
+    from ..utils.exceptions import ModelException
 
     logger.debug(
         f"[get_model_instance_by_name] 尝试实例化模型: {active_model_name_str}"

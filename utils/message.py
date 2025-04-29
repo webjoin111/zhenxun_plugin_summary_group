@@ -5,9 +5,7 @@ from nonebot.adapters.onebot.v11 import Bot
 from zhenxun.services.log import logger
 from zhenxun.utils.platform import PlatformUtils
 
-# --- 导入统一配置对象 ---
 from .. import base_config
-# --- 结束导入 ---
 
 try:
     from zhenxun.models.chat_history import ChatHistory
@@ -15,19 +13,8 @@ except ImportError:
     ChatHistory = None
     logger.warning("无法导入 ChatHistory 模型，数据库历史记录功能不可用。")
 
+from .exceptions import MessageFetchException, MessageProcessException
 from .health import with_retry
-
-
-class SummaryException(Exception):
-    pass
-
-
-class MessageFetchException(SummaryException):
-    pass
-
-
-class MessageProcessException(SummaryException):
-    pass
 
 
 async def get_raw_group_msg_history(bot: Bot, group_id: int, count: int) -> list:
@@ -244,8 +231,6 @@ async def process_message(
 async def get_group_msg_history(
     bot: Bot, group_id: int, count: int, target_user_ids: set[str] | None = None
 ) -> tuple[list[dict[str, str]], dict[str, str]]:
-    from .summary import process_message
-
     async def fetch_messages():
         try:
             response = await bot.get_group_msg_history(group_id=group_id, count=count)
