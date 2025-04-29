@@ -263,6 +263,7 @@ async def generate_help_image(_: str = "") -> bytes:
 
 - 消息数量范围: {base_config.get("SUMMARY_MIN_LENGTH", 1)} - {base_config.get("SUMMARY_MAX_LENGTH", 1000)}
 - 冷却时间: {base_config.get("SUMMARY_COOL_DOWN", 60)} 秒
+- 输出主题: {base_config.get("summary_theme", "vscode_dark")} (可选: light, dark, vscode_light, vscode_dark)
 - 配置相关命令中的 `-g <群号>` 参数需要 Superuser 权限
 
 ---

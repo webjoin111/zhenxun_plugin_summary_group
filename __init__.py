@@ -289,6 +289,14 @@ __plugin_meta__ = PluginMetadata(
             ),
             RegisterConfig(
                 module="summary_group",
+                key="summary_theme",
+                value="vscode_dark",
+                help="总结图片输出的主题 (可选: light, dark, vscode_light, vscode_dark)",
+                default_value="vscode_dark",
+                type=str,
+            ),
+            RegisterConfig(
+                module="summary_group",
                 key="EXCLUDE_BOT_MESSAGES",
                 value=False,
                 help="是否在总结时排除 Bot 自身发送的消息",
