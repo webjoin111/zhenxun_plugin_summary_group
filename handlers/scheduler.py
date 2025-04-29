@@ -14,22 +14,14 @@ from zhenxun.services.log import logger
 
 base_config = Config.get("summary_group")
 
-from ..store import Store
+from ..store import store
+from ..utils.exceptions import SchedulerException
 from ..utils.scheduler import (
-    SummaryException,
     check_scheduler_status,
     scheduler_send_summary,
     update_single_group_schedule,
     verify_processor_status,
 )
-
-
-class TimeParseException(SummaryException):
-    pass
-
-
-class SchedulerException(SummaryException):
-    pass
 
 
 def parse_time(time_str: str) -> tuple[int, int]:
@@ -102,12 +94,12 @@ async def handle_global_summary_set(
     )
 
     try:
-        store = Store()
-
         group_list = await bot.get_group_list()
         group_ids = [group["group_id"] for group in group_list]
 
-        logger.debug(f"开始设置全局定时任务，总共 {len(group_ids)} 个群", command="全局定时总结")
+        logger.debug(
+            f"开始设置全局定时任务，总共 {len(group_ids)} 个群", command="全局定时总结"
+        )
         updated_count = 0
 
         data = {
@@ -122,7 +114,7 @@ async def handle_global_summary_set(
         for group_id in group_ids:
             try:
                 group_id = int(group_id)
-                store.set(group_id, data)
+                await store.set(group_id, data)
 
                 job_id = f"summary_group_{group_id}"
                 try:
@@ -172,7 +164,9 @@ async def handle_global_summary_set(
         )
 
         if failed_groups:
-            result_msg += f"\n注意: {len(failed_groups)}个群设置失败: {failed_groups[:5]}"
+            result_msg += (
+                f"\n注意: {len(failed_groups)}个群设置失败: {failed_groups[:5]}"
+            )
             if len(failed_groups) > 5:
                 result_msg += f"等{len(failed_groups)}个群"
 
@@ -206,7 +200,9 @@ async def handle_summary_set(
 
     arp = result.result
     if not arp:
-        logger.error("在 handle_summary_set 中 Arparma result 为 None", command="定时总结")
+        logger.error(
+            "在 handle_summary_set 中 Arparma result 为 None", command="定时总结"
+        )
         await UniMessage.text("命令解析内部错误。").send(target)
         return
 
@@ -259,7 +255,9 @@ async def handle_summary_set(
                     group_id=group_id,
                 )
                 can_proceed = False
-            if can_proceed and await GroupConsole.is_block_plugin(str(group_id), plugin_name):
+            if can_proceed and await GroupConsole.is_block_plugin(
+                str(group_id), plugin_name
+            ):
                 logger.info(
                     f"Plugin '{plugin_name}' is blocked in group {group_id}.",
                     command="定时总结",
@@ -272,13 +270,19 @@ async def handle_summary_set(
         return
 
     if not can_proceed:
-        await UniMessage.text("当前环境不允许执行此命令。请检查Bot、群聊或用户状态。").send(target)
+        await UniMessage.text(
+            "当前环境不允许执行此命令。请检查Bot、群聊或用户状态。"
+        ).send(target)
         return
 
     hour, minute = time_tuple
 
-    if not isinstance(event, GroupMessageEvent) and not (target_group_id_match or all_enabled):
-        await UniMessage.text("请在群聊中使用此命令，或使用 -g <群号> / -all 参数指定目标").send(target)
+    if not isinstance(event, GroupMessageEvent) and not (
+        target_group_id_match or all_enabled
+    ):
+        await UniMessage.text(
+            "请在群聊中使用此命令，或使用 -g <群号> / -all 参数指定目标"
+        ).send(target)
         return
 
     if all_enabled:
@@ -325,7 +329,9 @@ async def handle_summary_set(
             )
             if success:
                 await UniMessage.text(message).send(target)
-                logger.info(f"全局定时总结设置成功，影响 {count} 个群", command="定时总结")
+                logger.info(
+                    f"全局定时总结设置成功，影响 {count} 个群", command="定时总结"
+                )
             else:
                 await UniMessage.text(f"全局设置失败: {message}").send(target)
                 logger.error(f"全局定时总结设置失败: {message}", command="定时总结")
@@ -349,9 +355,13 @@ async def handle_summary_set(
                     f"{'，风格：' + style_value if style_value else ''}"
                 )
                 await UniMessage.text(response_msg).send(target)
-                logger.info(f"群 {target_group_id} 的定时总结设置成功", command="定时总结")
+                logger.info(
+                    f"群 {target_group_id} 的定时总结设置成功", command="定时总结"
+                )
             else:
-                await UniMessage.text(f"设置群 {target_group_id} 失败: {message}").send(target)
+                await UniMessage.text(f"设置群 {target_group_id} 失败: {message}").send(
+                    target
+                )
                 logger.error(
                     f"群 {target_group_id} 的定时总结设置失败: {message}",
                     command="定时总结",
@@ -373,7 +383,7 @@ async def handle_summary_set(
         await UniMessage.text(f"处理命令时发生意外错误: {e!s} 请检查日志").send(target)
 
 
-async def handle_global_summary_remove(store: Store) -> tuple[bool, str, int, int]:
+async def handle_global_summary_remove() -> tuple[bool, str, int, int]:
     from nonebot_plugin_apscheduler import scheduler
 
     logger.debug("执行取消所有群组的定时总结", command="全局定时总结")
@@ -419,10 +429,12 @@ async def handle_global_summary_remove(store: Store) -> tuple[bool, str, int, in
             except ValueError:
                 logger.warning(f"无效的群号: {group_id_str}", command="全局定时总结")
 
-        store.remove_all()
+        await store.remove_all()
         logger.debug("已清空所有群组的定时总结设置", command="全局定时总结")
 
-        remaining_jobs = [job for job in scheduler.get_jobs() if job.id.startswith("summary_group_")]
+        remaining_jobs = [
+            job for job in scheduler.get_jobs() if job.id.startswith("summary_group_")
+        ]
 
         if remaining_jobs:
             logger.warning(
@@ -433,7 +445,9 @@ async def handle_global_summary_remove(store: Store) -> tuple[bool, str, int, in
             for job in remaining_jobs:
                 try:
                     scheduler.remove_job(job.id)
-                    logger.debug(f"强制移除调度器中的任务: {job.id}", command="全局定时总结")
+                    logger.debug(
+                        f"强制移除调度器中的任务: {job.id}", command="全局定时总结"
+                    )
                 except Exception as e:
                     logger.error(
                         f"强制移除任务 {job.id} 失败: {e!s}",
@@ -441,12 +455,12 @@ async def handle_global_summary_remove(store: Store) -> tuple[bool, str, int, in
                         e=e,
                     )
 
-        result_msg = (
-            f"已取消所有群的定时总结，共影响 {group_count} 个群组，从调度器中移除了 {removed_count} 个任务。"
-        )
+        result_msg = f"已取消所有群的定时总结，共影响 {group_count} 个群组，从调度器中移除了 {removed_count} 个任务。"
 
         if failed_groups:
-            result_msg += f"\n注意: {len(failed_groups)}个群取消失败: {failed_groups[:5]}"
+            result_msg += (
+                f"\n注意: {len(failed_groups)}个群取消失败: {failed_groups[:5]}"
+            )
             if len(failed_groups) > 5:
                 result_msg += f"等{len(failed_groups)}个群"
 
@@ -479,7 +493,9 @@ async def handle_summary_remove(
 
     arp = result.result
     if not arp:
-        logger.error("在 handle_summary_remove 中 Arparma result 为 None", command="定时总结取消")
+        logger.error(
+            "在 handle_summary_remove 中 Arparma result 为 None", command="定时总结取消"
+        )
         await UniMessage.text("命令解析内部错误。").send(target)
         return
 
@@ -531,7 +547,9 @@ async def handle_summary_remove(
                     group_id=group_id,
                 )
                 can_proceed = False
-            if can_proceed and await GroupConsole.is_block_plugin(str(group_id), plugin_name):
+            if can_proceed and await GroupConsole.is_block_plugin(
+                str(group_id), plugin_name
+            ):
                 logger.info(
                     f"Plugin '{plugin_name}' is blocked in group {group_id}.",
                     command="定时总结取消",
@@ -544,11 +562,17 @@ async def handle_summary_remove(
         return
 
     if not can_proceed:
-        await UniMessage.text("当前环境不允许执行此命令。请检查Bot、群聊或用户状态。").send(target)
+        await UniMessage.text(
+            "当前环境不允许执行此命令。请检查Bot、群聊或用户状态。"
+        ).send(target)
         return
 
-    if not isinstance(event, GroupMessageEvent) and not (target_group_id_match or all_enabled):
-        await UniMessage.text("请在群聊中使用此命令，或使用 -g <群号> / -all 参数指定目标").send(target)
+    if not isinstance(event, GroupMessageEvent) and not (
+        target_group_id_match or all_enabled
+    ):
+        await UniMessage.text(
+            "请在群聊中使用此命令，或使用 -g <群号> / -all 参数指定目标"
+        ).send(target)
         return
 
     if all_enabled:
@@ -556,7 +580,9 @@ async def handle_summary_remove(
             await UniMessage.text("需要超级用户权限才能使用 -all 参数").send(target)
             return
 
-        logger.info(f"超级用户 {user_id_str} 触发全局定时总结取消", command="定时总结取消")
+        logger.info(
+            f"超级用户 {user_id_str} 触发全局定时总结取消", command="定时总结取消"
+        )
         action_type = "all"
 
     elif target_group_id_match:
@@ -591,7 +617,12 @@ async def handle_summary_remove(
 
     try:
         if action_type == "all":
-            success, message, removed_count, total_count = await handle_global_summary_remove(Store())
+            (
+                success,
+                message,
+                removed_count,
+                total_count,
+            ) = await handle_global_summary_remove()
             if success:
                 await UniMessage.text(message).send(target)
                 logger.info(
@@ -612,7 +643,9 @@ async def handle_summary_remove(
             if removed:
                 response_msg = f"已成功取消群 {target_group_id} 的定时总结任务。"
                 await UniMessage.text(response_msg).send(target)
-                logger.info(f"群 {target_group_id} 的定时总结取消成功", command="定时总结取消")
+                logger.info(
+                    f"群 {target_group_id} 的定时总结取消成功", command="定时总结取消"
+                )
             else:
                 response_msg = f"群 {target_group_id} 未设置定时总结任务，无需取消。"
                 await UniMessage.text(response_msg).send(target)
@@ -665,13 +698,19 @@ async def check_scheduler_status_handler(
 
         status_msg += f"当前共有 {group_count} 个群设置了定时总结：\n"
 
-        all_jobs = {job.id: job for job in scheduler_status_list if job.id.startswith("summary_group_")}
+        all_jobs = {
+            job.id: job
+            for job in scheduler_status_list
+            if job.id.startswith("summary_group_")
+        }
 
         for group_id_str in group_ids:
             try:
                 group_id_int = int(group_id_str)
             except ValueError:
-                logger.warning(f"存储中发现无效的 group_id: {group_id_str}", command="调度状态")
+                logger.warning(
+                    f"存储中发现无效的 group_id: {group_id_str}", command="调度状态"
+                )
                 continue
 
             data = store.get(group_id_int)
@@ -699,7 +738,9 @@ async def check_scheduler_status_handler(
                             command="调度状态",
                             e=tz_e,
                         )
-                        next_run = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S (原始时区)")
+                        next_run = job.next_run_time.strftime(
+                            "%Y-%m-%d %H:%M:%S (原始时区)"
+                        )
 
                 style_info = f"，风格：{style}" if style else ""
                 status_msg += (
@@ -714,7 +755,9 @@ async def check_scheduler_status_handler(
         await UniMessage.text(f"检查调度器状态失败: {e!s}").send(target)
 
 
-async def handle_summary_status(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent):
+async def handle_summary_status(
+    bot: Bot, event: GroupMessageEvent | PrivateMessageEvent
+):
     if not isinstance(event, GroupMessageEvent):
         await bot.send(event, "此命令只能在群聊中使用。")
         return
@@ -723,7 +766,6 @@ async def handle_summary_status(bot: Bot, event: GroupMessageEvent | PrivateMess
     user_id = event.get_user_id()
     logger.debug(f"用户 {user_id} 在群 {group_id} 查询总结状态", command="总结状态")
 
-    store = Store()
     data = store.get(group_id)
 
     if data:
@@ -786,7 +828,9 @@ async def handle_summary_cancel(
             return
 
         if group_id and await BanConsole.is_ban(None, group_id):
-            logger.info(f"Group {group_id} is banned.", command="取消定时", group_id=group_id)
+            logger.info(
+                f"Group {group_id} is banned.", command="取消定时", group_id=group_id
+            )
             return
 
         if group_id and await BanConsole.is_ban(user_id, group_id):

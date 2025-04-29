@@ -1,6 +1,6 @@
-from typing import Any
-
 from nonebot import get_driver, require
+
+driver = get_driver()
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, PrivateMessageEvent
 from nonebot.permission import SUPERUSER
 from nonebot.plugin import PluginMetadata
@@ -12,8 +12,6 @@ from zhenxun.services.log import logger
 from zhenxun.utils.enum import LimitWatchType, PluginLimitType
 from zhenxun.utils.rules import admin_check
 from zhenxun.utils.utils import FreqLimiter
-
-from .utils.scheduler import set_scheduler
 
 require("nonebot_plugin_alconna")
 from arclet.alconna import (
@@ -35,9 +33,10 @@ from nonebot_plugin_alconna import (
 
 require("nonebot_plugin_apscheduler")
 
-
 base_config = Config.get("summary_group")
+ai_config = Config.get("AI")
 
+from .utils.scheduler import set_scheduler
 
 try:
     cooldown_seconds = base_config.get("SUMMARY_COOL_DOWN", 60)
@@ -52,24 +51,33 @@ summary_cd_limiter = FreqLimiter(cooldown_seconds)
 logger.info(f"群聊总结插件冷却限制器已初始化，冷却时间: {cooldown_seconds} 秒")
 
 
-def validate_and_parse_msg_count(count_input: Any) -> int:
-    """验证并解析消息数量，确保在配置的范围内"""
+def validate_msg_count_range(count: int) -> int:
+    """验证消息数量是否在配置的范围内"""
+    logger.debug(
+        f"--- Validator validate_msg_count_range called with input: {count} ---"
+    )
+
+    min_len_val = base_config.get("SUMMARY_MIN_LENGTH")
+    max_len_val = base_config.get("SUMMARY_MAX_LENGTH")
+
+    if min_len_val is None or max_len_val is None:
+        logger.error(
+            "配置缺失: SUMMARY_MIN_LENGTH 或 SUMMARY_MAX_LENGTH 未在配置中找到或为 null。"
+        )
+        raise ValueError("配置错误: 缺少最小/最大消息长度设置。")
+
     try:
-        count = int(count_input)
+        min_len_int = int(min_len_val)
+        max_len_int = int(max_len_val)
     except (ValueError, TypeError):
-        logger.warning(f"消息数量验证失败: '{count_input!r}' 不是有效整数")
-        raise ValueError("消息数量必须是一个有效的整数")
+        logger.error("配置值 SUMMARY_MIN_LENGTH 或 SUMMARY_MAX_LENGTH 不是有效整数。")
+        raise ValueError("配置错误: 最小/最大消息长度不是有效整数。")
 
-    min_len = int(base_config.get("SUMMARY_MIN_LENGTH") or 50)
-    max_len = int(base_config.get("SUMMARY_MAX_LENGTH") or 1000)
-
-    if count < min_len:
-        logger.warning(f"消息数量验证失败: {count} < {min_len}")
-        raise ValueError(f"总结消息数量不能小于 {min_len}")
-
-    if count > max_len:
-        logger.warning(f"消息数量验证失败: {count} > {max_len}")
-        raise ValueError(f"总结消息数量不能超过 {max_len}")
+    if not (min_len_int <= count <= max_len_int):
+        logger.warning(
+            f"消息数量验证失败: {count} 不在范围 [{min_len_int}, {max_len_int}] 内"
+        )
+        raise ValueError(f"总结消息数量应在 {min_len_int} 到 {max_len_int} 之间")
 
     return count
 
@@ -102,83 +110,34 @@ __plugin_meta__ = PluginMetadata(
     name="群聊总结",
     description="使用 AI 分析群聊记录，生成讨论内容的总结",
     usage=(
-        "📖 **核心功能**\n"
-        "  ▶ `总结 <消息数量>`\n"
-        "      ▷ 对当前群聊最近指定数量的消息进行总结。\n"
-        "      ▷ 示例: `总结 300`\n"
-        "  ▶ `总结 <消息数量> -p <风格>`\n"
-        "      ▷ 指定总结的风格 (如：正式, 幽默, 锐评)。\n"
-        "      ▷ 示例: `总结 100 -p 幽默`\n"
-        "  ▶ `总结 <消息数量> @用户1 @用户2 ...`\n"
-        "      ▷ 只总结被@用户的发言。\n"
-        "      ▷ 示例: `总结 500 @张三 @李四`\n"
-        "  ▶ `总结 <消息数量> <关键词>`\n"
-        "      ▷ 只总结包含指定关键词的消息内容。\n"
-        "      ▷ 示例: `总结 200 关于项目进度`\n"
-        "  ▶ `总结 <数量> [-p 风格] [@用户] [关键词] -g <群号>` (限 Superuser)\n"
-        "      ▷ 远程总结指定群号的聊天记录。\n"
-        "      ▷ 示例: `总结 150 -g 12345678`\n\n"
-        "🤖 **AI 模型管理**\n"
-        "  ▶ `总结模型列表`\n"
-        "      ▷ 列出所有已配置可用的 AI 模型及其提供商。\n"
-        "  ▶ `总结切换模型 <Provider/Model>` (限 Superuser)\n"
-        "      ▷ 切换全局默认使用的 AI 模型。\n"
-        "      ▷ 示例: `总结切换模型 DeepSeek/deepseek-chat`\n\n"
-        "⚙️ **配置管理 (统一入口: /总结配置)**\n"
-        "  ▶ `/总结配置 查看 [-g 群号]`\n"
-        "      ▷ 查看当前群（或指定群）的特定设置。\n"
-        "      ▷ 不带参数直接输入 `/总结配置` 效果相同。\n"
-        "      ▷ 示例: `/总结配置 查看` 或 `/总结配置` 或 `/总结配置 查看 -g 123456`\n"
-        "  ▶ `/总结配置 模型 列表`\n"
-        "      ▷ 列出所有已配置可用的 AI 模型及其提供商。\n"
-        "  ▶ `/总结配置 模型 切换 <Provider/Model>` (限 Superuser)\n"
-        "      ▷ 切换全局默认使用的 AI 模型。\n"
-        "      ▷ 示例: `/总结配置 模型 切换 DeepSeek/deepseek-chat`\n"
-        "  ▶ `/总结配置 模型 设置 <Provider/Model> [-g 群号]` (限 Superuser)\n"
-        "      ▷ 设置当前群（或指定群）覆盖全局的默认模型。\n"
-        "      ▷ 示例: `/总结配置 模型 设置 Gemini/gemini-pro`\n"
-        "      ▷ 示例: `/总结配置 模型 设置 Gemini/gemini-pro -g 123456`\n"
-        "  ▶ `/总结配置 模型 移除 [-g 群号]` (限 Superuser)\n"
-        "      ▷ 移除当前群（或指定群）的特定模型设置，恢复使用全局模型。\n"
-        "      ▷ 示例: `/总结配置 模型 移除` 或 `/总结配置 模型 移除 -g 123456`\n"
-        "  ▶ `/总结配置 风格 设置 <风格名称> [-g 群号]` (限 Admin/Superuser)\n"
-        "      ▷ 设置当前群（或指定群）的默认总结风格。\n"
-        "      ▷ 示例: `/总结配置 风格 设置 轻松活泼`\n"
-        "      ▷ 示例: `/总结配置 风格 设置 轻松活泼 -g 123456`\n"
-        "  ▶ `/总结配置 风格 移除 [-g 群号]` (限 Admin/Superuser)\n"
-        "      ▷ 移除当前群（或指定群）的默认风格设置。\n"
-        "      ▷ 示例: `/总结配置 风格 移除` 或 `/总结配置 风格 移除 -g 123456`\n\n"
-        "⏱️ **定时任务 (需 Admin/Superuser 权限)**\n"
-        "  ▶ `定时总结 <时间> [消息数量] [-p 风格] [-g 群号 | -all]`\n"
-        "      ▷ 设置定时发送总结 (HH:MM 或 HHMM 格式)。\n"
-        "      ▷ `-g` 指定群, `-all` 对所有群 (仅 Superuser)。\n"
-        "      ▷ 示例: `定时总结 22:30 500` (设置本群)\n"
-        "      ▷ 示例: `定时总结 0800 -g 123456` (Superuser 设置指定群)\n"
-        "  ▶ `定时总结取消 [-g 群号 | -all]`\n"
-        "      ▷ 取消定时总结任务。\n"
-        "      ▷ 示例: `定时总结取消` (取消本群)\n\n"
-        "💏 **系统管理 (仅限 Superuser)**\n"
-        "  ▶ `总结调度状态 [-d]`\n"
-        "      ▷ 查看所有定时任务的运行状态。\n"
-        "  ▶ `总结健康检查`\n"
-        "      ▷ 检查插件各组件的健康状况。\n"
-        "  ▶ `总结系统修复`\n"
-        "      ▷ 尝试自动修复检测到的系统问题。\n\n"
-        "ℹ️ **提示:**\n"
-        f"  - 消息数量范围: {base_config.get('SUMMARY_MIN_LENGTH', 1)} - {base_config.get('SUMMARY_MAX_LENGTH', 1000)}\n"
-        f"  - 手动总结冷却时间: {base_config.get('SUMMARY_COOL_DOWN', 60)} 秒\n"
-        "  - 配置相关命令中的 `-g <群号>` 参数通常需要 Superuser 权限"
+        "📖 **群聊总结插件**\n\n"
+        "🔍 **基础命令**\n"
+        "  • `总结 <消息数量>` - 总结最近的群聊消息\n"
+        "  • `总结 <消息数量> -p <风格>` - 指定总结风格\n"
+        "  • `总结 <消息数量> @用户` - 只总结特定用户的消息\n"
+        "  • `总结模型列表` - 查看可用的AI模型\n"
+        "  • `总结切换模型 <Provider/Model>` - 切换AI模型 (限超管)\n"
+        "  • `总结密钥状态` - 查看API密钥状态 (限超管)\n\n"
+        "⏱️ **定时功能**\n"
+        "  • `定时总结 <时间>` - 设置定时总结 (需管理员)\n"
+        "  • `定时总结取消` - 取消定时总结\n\n"
+        "⚙️ **配置管理**\n"
+        "  • `/总结配置` - 查看和管理总结设置\n\n"
+        "ℹ️ **提示**\n"
+        f"  • 消息数量范围: {base_config.get('SUMMARY_MIN_LENGTH', 1)}-{base_config.get('SUMMARY_MAX_LENGTH', 1000)}\n"
+        f"  • 冷却时间: {base_config.get('SUMMARY_COOL_DOWN', 60)} 秒\n\n"
+        "📋 更多详细帮助请使用 `总结帮助` 命令查看"
     ),
     type="application",
     homepage="https://github.com/webjoin111/zhenxun_plugin_summary_group",
     supported_adapters={"~onebot.v11"},
     extra=PluginExtraData(
         author="webjoin111",
-        version="2.0",
+        version="2.1",
         configs=[
             RegisterConfig(
-                module="summary_group",
-                key="SUMMARY_PROVIDERS",
+                module="AI",
+                key="PROVIDERS",
                 value=[
                     {
                         "name": "DeepSeek",
@@ -330,9 +289,25 @@ __plugin_meta__ = PluginMetadata(
             ),
             RegisterConfig(
                 module="summary_group",
+                key="summary_theme",
+                value="vscode_dark",
+                help="总结图片输出的主题 (可选: light, dark, vscode_light, vscode_dark)",
+                default_value="vscode_dark",
+                type=str,
+            ),
+            RegisterConfig(
+                module="summary_group",
                 key="EXCLUDE_BOT_MESSAGES",
                 value=False,
                 help="是否在总结时排除 Bot 自身发送的消息",
+                default_value=False,
+                type=bool,
+            ),
+            RegisterConfig(
+                module="summary_group",
+                key="USE_DB_HISTORY",
+                value=False,
+                help="是否尝试从数据库(chat_history表)读取聊天记录 (实验性功能)",
                 default_value=False,
                 type=bool,
             ),
@@ -347,7 +322,7 @@ __plugin_meta__ = PluginMetadata(
         ],
         limits=[
             PluginCdBlock(
-                cd=Config.get_config("summary_group", "SUMMARY_COOL_DOWN", 60),
+                cd=base_config.get("SUMMARY_COOL_DOWN", 60),
                 limit_type=PluginLimitType.CD,
                 watch_type=LimitWatchType.USER,
                 status=True,
@@ -365,7 +340,7 @@ summary_group = on_alconna(
             "message_count",
             int,
             Field(
-                completion=lambda: f"输入消息数量 ({base_config.get('SUMMARY_MIN_LENGTH', 1)}-{base_config.get('SUMMARY_MAX_LENGTH', 1000)})"
+                completion=lambda: f"输入消息数量 ({base_config.get('SUMMARY_MIN_LENGTH', 1)}-{base_config.get('SUMMARY_MAX_LENGTH', 1000)})",
             ),
         ],
         Option(
@@ -467,7 +442,7 @@ summary_remove = on_alconna(
         Option("-all", help_text="取消所有群的定时总结 (需要超级用户权限)"),
         meta=CommandMeta(
             description="取消定时群聊总结",
-            usage="定时总结取消 [-g 群号 | -all]\n说明: 取消本群需管理员, -g/-all 仅限超级用户",
+            usage="定时总结取消 [-g 群号 | -all]\n说明: 取消本群需管理员",
             example="定时总结取消\n定时总结取消 -g 123456\n定时总结取消 -all",
         ),
     ),
@@ -541,7 +516,19 @@ summary_list_models = on_alconna(
     ),
     priority=5,
     block=True,
+)
+
+summary_key_status = on_alconna(
+    Alconna(
+        "总结密钥状态",
+        meta=CommandMeta(
+            description="查看 API Key 的状态信息（仅限超级用户）",
+            usage="总结密钥状态",
+        ),
+    ),
     permission=SUPERUSER,
+    priority=5,
+    block=True,
 )
 
 summary_help = on_alconna(
@@ -616,6 +603,7 @@ from .handlers.health import (
     handle_system_repair as system_repair_handler_impl,
 )
 from .handlers.model_control import (
+    handle_key_status,
     handle_list_models,
     handle_switch_model,
     validate_active_model_on_startup,
@@ -644,53 +632,42 @@ async def _(
     target: MsgTarget,
 ):
     user_id_str = event.get_user_id()
-    logger.debug(f"用户 {user_id_str} 尝试触发总结，即将检查冷却...")
-
     is_superuser = await SUPERUSER(bot, event)
+
+    try:
+        validate_msg_count_range(message_count)
+        logger.debug(f"消息数量 {message_count} 范围验证通过。")
+    except ValueError as e:
+        logger.warning(f"消息数量验证失败 (Handler): {e}")
+        await UniMessage.text(str(e)).send(target)
+        return
+
+    logger.debug(
+        f"用户 {user_id_str} 触发总结，权限、冷却和参数验证通过 (或为 Superuser)，开始执行核心逻辑。"
+    )
 
     arp = result.result
     target_group_id_match = arp.query("g.target_group_id") if arp else None
-    target_group_id_from_option = None
-    if target_group_id_match:
-        if not is_superuser:
-            await UniMessage.text("需要超级用户权限才能使用 -g 参数指定群聊。").send(
-                target
-            )
-            logger.warning(f"用户 {user_id_str} (非超级用户) 尝试使用 -g 参数")
-            return
-        target_group_id_from_option = int(target_group_id_match)
-        logger.debug(
-            f"超级用户 {user_id_str} 使用 -g 指定群聊: {target_group_id_from_option}"
-        )
-
-    if not is_superuser:
-        is_ready = summary_cd_limiter.check(user_id_str)
-        logger.debug(f"冷却检查结果 (非超级用户 {user_id_str}, is_ready): {is_ready}")
-
-        if not is_ready:
-            left = summary_cd_limiter.left_time(user_id_str)
-            logger.info(
-                f"用户 {user_id_str} 触发总结命令，但在冷却中 ({left:.1f}s 剩余)"
-            )
-            await UniMessage.text(f"总结功能冷却中，请等待 {left:.1f} 秒后再试~").send(
-                target
-            )
-            return
-        else:
-            logger.debug(f"用户 {user_id_str} 不在冷却中，继续执行。")
-    else:
-        logger.debug(f"用户 {user_id_str} 是超级用户，跳过冷却检查。")
+    if target_group_id_match and not is_superuser:
+        await UniMessage.text("需要超级用户权限才能使用 -g 参数指定群聊。").send(target)
+        logger.warning(f"用户 {user_id_str} (非超级用户) 尝试使用 -g 参数")
+        return
 
     try:
-        try:
-            message_count = validate_and_parse_msg_count(message_count)
-        except ValueError as e:
-            await UniMessage.text(str(e)).send(target)
-            return
-        except Exception as e:
-            logger.error(f"验证消息数量时出错: {e}", command="总结")
-            await UniMessage.text(f"验证消息数量时出错: {e}").send(target)
-            return
+        if not is_superuser:
+            is_ready = summary_cd_limiter.check(user_id_str)
+            if not is_ready:
+                left = summary_cd_limiter.left_time(user_id_str)
+                logger.info(
+                    f"用户 {user_id_str} 触发总结命令，但在冷却中 ({left:.1f}s 剩余)"
+                )
+                await UniMessage.text(
+                    f"总结功能冷却中，请等待 {left:.1f} 秒后再试~"
+                ).send(target)
+                return
+            else:
+                summary_cd_limiter.start_cd(user_id_str)
+                logger.debug(f"用户 {user_id_str} (非超级用户) 冷却已启动。")
 
         await summary_handler_impl(
             bot, event, result, message_count, style, parts, target
@@ -700,7 +677,7 @@ async def _(
             f"处理总结命令时发生异常: {e}",
             command="总结",
             session=event.get_user_id(),
-            group_id=getattr(event, "group_id", None),
+            group_id=getattr(event, "group_id", None)
         )
         try:
             await UniMessage.text(f"处理命令时出错: {e!s}").send(target)
@@ -741,7 +718,7 @@ async def _(
             count_to_validate = (
                 least_count_match if least_count_match is not None else default_count
             )
-            least_count = validate_and_parse_msg_count(count_to_validate)
+            least_count = validate_msg_count_range(int(count_to_validate))
 
         except ValueError as e:
             await UniMessage.text(str(e)).send(target)
@@ -799,9 +776,6 @@ async def handle_system_fix(
     await system_repair_handler_impl(bot, event, target)
 
 
-driver = get_driver()
-
-
 @summary_switch_model.handle()
 async def _(
     bot: Bot,
@@ -813,9 +787,7 @@ async def _(
         new_name = provider_model.result
         success, message = handle_switch_model(new_name)
         if success:
-            Config.set_config(
-                "summary_group", "CURRENT_ACTIVE_MODEL_NAME", new_name, auto_save=True
-            )
+            Config.set_config("summary_group", "CURRENT_ACTIVE_MODEL_NAME", new_name, True)
             logger.info(f"AI 模型已通过配置持久化切换为: {new_name}")
             await UniMessage.text(f"已成功切换到模型: {new_name}").send(target)
         else:
@@ -832,6 +804,14 @@ async def _(
 ):
     current_model_name = base_config.get("CURRENT_ACTIVE_MODEL_NAME")
     message = handle_list_models(current_model_name)
+    await UniMessage.text(message).send(target)
+
+
+@summary_key_status.handle()
+async def _(
+    bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget
+):
+    message = await handle_key_status()
     await UniMessage.text(message).send(target)
 
 
@@ -868,7 +848,7 @@ async def _(
 
 @driver.on_startup
 async def startup():
-    set_scheduler()
+    await set_scheduler()
     validate_active_model_on_startup()
     final_active_model = base_config.get("CURRENT_ACTIVE_MODEL_NAME")
     logger.info(
