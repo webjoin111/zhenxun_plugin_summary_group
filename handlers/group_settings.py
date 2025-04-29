@@ -4,13 +4,13 @@ from nonebot.permission import SUPERUSER
 from nonebot_plugin_alconna import CommandResult, Match, UniMessage
 from nonebot_plugin_alconna.uniseg import MsgTarget
 
-from zhenxun.configs.config import Config
 from zhenxun.models.ban_console import BanConsole
 from zhenxun.models.bot_console import BotConsole
 from zhenxun.models.group_console import GroupConsole
 from zhenxun.models.level_user import LevelUser
 from zhenxun.services.log import logger
 
+from .. import base_config
 from ..store import store
 from .model_control import (
     find_model,
@@ -40,7 +40,7 @@ async def _check_perms(bot: Bot, event: GroupMessageEvent, target: MsgTarget) ->
         if await BanConsole.is_ban(user_id_str, group_id):
             return False
 
-        required_level = Config.get_config("summary_group", "SUMMARY_ADMIN_LEVEL", 10)
+        required_level = base_config.get("SUMMARY_ADMIN_LEVEL", 10)
         is_admin = await LevelUser.check_level(
             user_id_str, str(group_id), required_level
         )
@@ -188,11 +188,8 @@ async def _switch_global_model(
     """内部函数：切换全局模型"""
     success, message = handle_switch_model(provider_model_name)
     if success:
-        Config.set_config(
-            "summary_group",
-            "CURRENT_ACTIVE_MODEL_NAME",
-            provider_model_name,
-            auto_save=True,
+        base_config.set(
+            "CURRENT_ACTIVE_MODEL_NAME", provider_model_name, auto_save=True
         )
         logger.info(f"全局 AI 模型已切换为: {provider_model_name} by {operator_id}")
         await UniMessage.text(f"已成功切换全局激活模型为: {provider_model_name}").send(
@@ -278,9 +275,7 @@ async def _remove_group_style(target: MsgTarget, group_id: str, operator_id: str
 async def _show_settings(target: MsgTarget, group_id_to_show: str):
     """内部函数：显示指定群组的设置"""
     settings = store.get_all_group_settings(group_id_to_show)
-    global_active_model = Config.get_config(
-        "summary_group", "CURRENT_ACTIVE_MODEL_NAME"
-    )
+    global_active_model = base_config.get("CURRENT_ACTIVE_MODEL_NAME")
 
     message = f"群聊 {group_id_to_show} 的总结配置：\n"
     has_specific_settings = False
@@ -373,9 +368,7 @@ async def handle_summary_config(
 
     if arp.find("模型"):
         if arp.find("模型.列表"):
-            current_active = Config.get_config(
-                "summary_group", "CURRENT_ACTIVE_MODEL_NAME"
-            )
+            current_active = base_config.get("CURRENT_ACTIVE_MODEL_NAME")
             list_msg = handle_list_models(current_active)
             await UniMessage.text(list_msg).send(target)
 
@@ -428,7 +421,7 @@ async def handle_summary_config(
 
     elif arp.find("风格"):
         can_proceed = False
-        required_level = Config.get_config("summary_group", "SUMMARY_ADMIN_LEVEL", 10)
+        required_level = base_config.get("SUMMARY_ADMIN_LEVEL", 10)
         if is_superuser:
             can_proceed = True
         elif originating_group_id and isinstance(event, GroupMessageEvent):

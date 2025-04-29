@@ -6,13 +6,11 @@ from typing import Any, ClassVar
 import httpx
 from pydantic import BaseModel, Field
 
-from zhenxun.configs.config import Config
 from zhenxun.services.log import logger
 from zhenxun.utils.http_utils import AsyncHttpx
 from zhenxun.utils.user_agent import get_user_agent
 
-base_config = Config.get("summary_group")
-ai_config = Config.get("AI")
+from . import base_config
 
 
 class ModelException(Exception):
@@ -21,13 +19,20 @@ class ModelException(Exception):
 
 class ModelConfig(BaseModel):
     name: str = Field(..., description="模型的唯一名称标识")
-    api_key: str | list[str] = Field(..., description="该模型对应的 API Key 或 Key 列表")
-    model_name: str = Field(..., description="模型的具体名称 (例如 gemini-1.5-flash, deepseek-chat)")
+    api_key: str | list[str] = Field(
+        ..., description="该模型对应的 API Key 或 Key 列表"
+    )
+    model_name: str = Field(
+        ..., description="模型的具体名称 (例如 gemini-1.5-flash, deepseek-chat)"
+    )
     api_base: str = Field(..., description="该模型对应的 API Base URL")
     api_type: str | None = Field(
-        None, description="API 类型 (如 openai, claude, gemini, baidu 等)，留空则自动推断"
+        None,
+        description="API 类型 (如 openai, claude, gemini, baidu 等)，留空则自动推断",
     )
-    openai_compat: bool = Field(False, description="是否对 Gemini API 使用 OpenAI 兼容模式")
+    openai_compat: bool = Field(
+        False, description="是否对 Gemini API 使用 OpenAI 兼容模式"
+    )
     max_tokens: int | None = Field(None, description="（可选）模型最大输出 token 限制")
     temperature: float | None = Field(None, description="（可选）模型温度参数")
 
@@ -35,23 +40,40 @@ class ModelConfig(BaseModel):
 class ModelDetail(BaseModel):
     """单个模型的具体配置"""
 
-    model_name: str = Field(..., description="模型的具体名称 (例如 gemini-1.5-flash, deepseek-chat)")
-    temperature: float | None = Field(None, description="（可选）覆盖 Provider 的温度参数")
-    max_tokens: int | None = Field(None, description="（可选）覆盖 Provider 的最大 token 限制")
+    model_name: str = Field(
+        ..., description="模型的具体名称 (例如 gemini-1.5-flash, deepseek-chat)"
+    )
+    temperature: float | None = Field(
+        None, description="（可选）覆盖 Provider 的温度参数"
+    )
+    max_tokens: int | None = Field(
+        None, description="（可选）覆盖 Provider 的最大 token 限制"
+    )
 
 
 class ProviderConfig(BaseModel):
     """AI 服务提供商的配置"""
 
-    name: str = Field(..., description="Provider 的唯一名称标识 (例如 Gemini, DeepSeek)")
-    api_key: str | list[str] = Field(..., description="该 Provider 对应的 API Key 或 Key 列表")
+    name: str = Field(
+        ..., description="Provider 的唯一名称标识 (例如 Gemini, DeepSeek)"
+    )
+    api_key: str | list[str] = Field(
+        ..., description="该 Provider 对应的 API Key 或 Key 列表"
+    )
     api_base: str = Field(..., description="该 Provider 对应的 API Base URL")
     api_type: str | None = Field(
-        None, description="API 类型 (如 openai, claude, gemini, baidu 等)，留空则自动推断"
+        None,
+        description="API 类型 (如 openai, claude, gemini, baidu 等)，留空则自动推断",
     )
-    openai_compat: bool = Field(False, description="是否对 Gemini API 使用 OpenAI 兼容模式")
-    temperature: float | None = Field(None, description="（可选）Provider 的默认温度参数")
-    max_tokens: int | None = Field(None, description="（可选）Provider 的默认最大 token 限制")
+    openai_compat: bool = Field(
+        False, description="是否对 Gemini API 使用 OpenAI 兼容模式"
+    )
+    temperature: float | None = Field(
+        None, description="（可选）Provider 的默认温度参数"
+    )
+    max_tokens: int | None = Field(
+        None, description="（可选）Provider 的默认最大 token 限制"
+    )
     models: list[ModelDetail] = Field(..., description="该 Provider 支持的模型列表")
 
 
@@ -110,7 +132,9 @@ class LLMModel(Model):
         max_tokens: int | None = None,
     ):
         logger.debug("[LLMModel.__init__] 正在初始化LLMModel...")
-        logger.debug(f"[LLMModel.__init__] 收到的api_keys参数: {api_keys!r} (类型: {type(api_keys)})")
+        logger.debug(
+            f"[LLMModel.__init__] 收到的api_keys参数: {api_keys!r} (类型: {type(api_keys)})"
+        )
 
         processed_keys = []
         if isinstance(api_keys, str):
@@ -119,11 +143,15 @@ class LLMModel(Model):
         elif isinstance(api_keys, list):
             processed_keys = [str(k) for k in api_keys if k]
         else:
-            logger.warning(f"[LLMModel.__init__] api_keys 类型未预期: {type(api_keys)}，将视为空。")
+            logger.warning(
+                f"[LLMModel.__init__] api_keys 类型未预期: {type(api_keys)}，将视为空。"
+            )
 
         self.api_keys = processed_keys
 
-        logger.debug(f"[LLMModel.__init__] 最终处理的 api_keys 数量: {len(self.api_keys)}")
+        logger.debug(
+            f"[LLMModel.__init__] 最终处理的 api_keys 数量: {len(self.api_keys)}"
+        )
         if not self.api_keys:
             logger.error("[LLMModel.__init__] 初始化错误：没有提供有效的 API 密钥。")
             raise ValueError("LLMModel requires at least one valid API key.")
@@ -143,7 +171,9 @@ class LLMModel(Model):
 
         if self.openai_compat and self.api_type == "gemini":
             self.api_type = "gemini_openai"
-            logger.debug(f"[LLMModel.__init__] 启用OpenAI兼容模式，覆盖api_type为: {self.api_type}")
+            logger.debug(
+                f"[LLMModel.__init__] 启用OpenAI兼容模式，覆盖api_type为: {self.api_type}"
+            )
 
         logger.debug(f"[LLMModel.__init__] 模型 '{summary_model}' 初始化完成。")
 
@@ -184,18 +214,25 @@ class LLMModel(Model):
 
             return "错误：未配置有效的 API 密钥。"
 
-        logger.debug("[LLMModel.summary_history] 条件'not self.api_keys'为假，继续执行_request_summary")
+        logger.debug(
+            "[LLMModel.summary_history] 条件'not self.api_keys'为假，继续执行_request_summary"
+        )
 
         return await self._request_summary(messages, prompt)
 
-    async def _request_summary(self, messages: list[dict[str, str]], prompt: str) -> str:
+    async def _request_summary(
+        self, messages: list[dict[str, str]], prompt: str
+    ) -> str:
         if not self.api_keys:
-            logger.error("[LLMModel._request_summary] No API keys available.", command="LLMModel")
+            logger.error(
+                "[LLMModel._request_summary] No API keys available.", command="LLMModel"
+            )
             raise ModelException("错误：未配置有效的 API 密钥。")
 
         api_key = random.choice(self.api_keys)
         logger.debug(
-            f"使用模型 '{self.summary_model}' (随机选择 Key: {api_key[:5]}...) 发起请求", command="LLMModel"
+            f"使用模型 '{self.summary_model}' (随机选择 Key: {api_key[:5]}...) 发起请求",
+            command="LLMModel",
         )
 
         try:
@@ -218,17 +255,25 @@ class LLMModel(Model):
                 use_proxy=use_proxy_config,
             )
 
-            logger.debug(f"Response Status Code: {response.status_code}", command="LLMModel")
+            logger.debug(
+                f"Response Status Code: {response.status_code}", command="LLMModel"
+            )
             response.raise_for_status()
 
             result = response.json()
             response_text = self._extract_response_text(result)
 
-            logger.debug(f"API request successful with key starting: {api_key[:5]}...", command="LLMModel")
+            logger.debug(
+                f"API request successful with key starting: {api_key[:5]}...",
+                command="LLMModel",
+            )
             return response_text
 
         except httpx.TimeoutException as e:
-            logger.warning(f"API request timed out for key {api_key[:5]}...: {e}", command="LLMModel")
+            logger.warning(
+                f"API request timed out for key {api_key[:5]}...: {e}",
+                command="LLMModel",
+            )
             raise ModelException(f"API 请求超时: {e}") from e
         except httpx.HTTPStatusError as e:
             error_text = e.response.text[:200]
@@ -238,18 +283,27 @@ class LLMModel(Model):
                 command="LLMModel",
                 e=e,
             )
-            raise ModelException(f"API 请求失败 (状态码 {e.response.status_code}): {error_text}") from e
+            raise ModelException(
+                f"API 请求失败 (状态码 {e.response.status_code}): {error_text}"
+            ) from e
         except httpx.RequestError as e:
-            logger.error(f"API network request error for key {api_key[:5]}...: {e}", command="LLMModel", e=e)
+            logger.error(
+                f"API network request error for key {api_key[:5]}...: {e}",
+                command="LLMModel",
+                e=e,
+            )
             raise ModelException(f"网络请求错误: {e}") from e
         except (KeyError, IndexError, json.JSONDecodeError, ValueError) as e:
             logger.error(
-                f"Error processing API response for key {api_key[:5]}...: {e}", command="LLMModel", e=e
+                f"Error processing API response for key {api_key[:5]}...: {e}",
+                command="LLMModel",
+                e=e,
             )
             raise ModelException(f"处理 API 响应失败: {e}") from e
         except Exception as e:
             logger.error(
-                f"Unexpected error during API request for key {api_key[:5]}...: {e}", command="LLMModel"
+                f"Unexpected error during API request for key {api_key[:5]}...: {e}",
+                command="LLMModel",
             )
             raise ModelException(f"发生意外错误: {e}") from e
 
@@ -257,10 +311,16 @@ class LLMModel(Model):
         if api_type == "baidu":
             url_format = self.API_URL_FORMAT[api_type]
 
-            return url_format.format(base=self.api_base, model=self.summary_model, key=api_key)
+            return url_format.format(
+                base=self.api_base, model=self.summary_model, key=api_key
+            )
         else:
-            url_format = self.API_URL_FORMAT.get(api_type, self.API_URL_FORMAT["general"])
-            return url_format.format(base=self.api_base, model=self.summary_model, key=api_key)
+            url_format = self.API_URL_FORMAT.get(
+                api_type, self.API_URL_FORMAT["general"]
+            )
+            return url_format.format(
+                base=self.api_base, model=self.summary_model, key=api_key
+            )
 
     def _prepare_request_params(
         self, api_key: str, messages: list[dict[str, str]], prompt: str
@@ -282,7 +342,13 @@ class LLMModel(Model):
             headers = {"Content-Type": "application/json"}
             data = {
                 "contents": [
-                    {"parts": [{"text": f"{prompt}\n\n以下是需要总结的对话内容：\n\n{content_str}"}]}
+                    {
+                        "parts": [
+                            {
+                                "text": f"{prompt}\n\n以下是需要总结的对话内容：\n\n{content_str}"
+                            }
+                        ]
+                    }
                 ],
                 "generationConfig": {},
             }
@@ -360,7 +426,9 @@ class LLMModel(Model):
             if self.temperature is not None:
                 data["temperature"] = self.temperature
         else:
-            logger.warning(f"API 类型 '{self.api_type}' 未显式处理参数，尝试使用 OpenAI 格式。")
+            logger.warning(
+                f"API 类型 '{self.api_type}' 未显式处理参数，尝试使用 OpenAI 格式。"
+            )
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {api_key}",
@@ -387,12 +455,19 @@ class LLMModel(Model):
     def _extract_response_text(self, result: dict[str, Any]) -> str:
         if self.api_type == "gemini":
             try:
-                if result.get("candidates") and result["candidates"][0].get("finishReason") == "SAFETY":
+                if (
+                    result.get("candidates")
+                    and result["candidates"][0].get("finishReason") == "SAFETY"
+                ):
                     safety_ratings = result["candidates"][0].get("safetyRatings", [])
                     blocked_categories = [
-                        r["category"] for r in safety_ratings if r["probability"] != "NEGLIGIBLE"
+                        r["category"]
+                        for r in safety_ratings
+                        if r["probability"] != "NEGLIGIBLE"
                     ]
-                    logger.warning(f"Gemini API 因安全原因阻止了响应: {blocked_categories}")
+                    logger.warning(
+                        f"Gemini API 因安全原因阻止了响应: {blocked_categories}"
+                    )
                     return "抱歉，生成的内容可能违反了安全规则，无法显示。"
                 return result["candidates"][0]["content"]["parts"][0]["text"]
             except (KeyError, IndexError) as e:
@@ -405,7 +480,9 @@ class LLMModel(Model):
             try:
                 if error_code := result.get("error_code"):
                     error_msg = result.get("error_msg", "未知错误")
-                    logger.error(f"Baidu API 返回错误: code={error_code}, msg={error_msg}")
+                    logger.error(
+                        f"Baidu API 返回错误: code={error_code}, msg={error_msg}"
+                    )
                     return f"API 请求失败: {error_msg}"
                 return result["result"]
             except KeyError as e:
@@ -418,14 +495,20 @@ class LLMModel(Model):
             try:
                 if result.get("type") == "message":
                     content_blocks = result.get("content", [])
-                    text_parts = [block["text"] for block in content_blocks if block.get("type") == "text"]
+                    text_parts = [
+                        block["text"]
+                        for block in content_blocks
+                        if block.get("type") == "text"
+                    ]
                     return "\n".join(text_parts)
                 elif result.get("completion"):
                     return result["completion"]
                 elif error_info := result.get("error"):
                     error_type = error_info.get("type", "unknown_error")
                     error_message = error_info.get("message", "未知错误")
-                    logger.error(f"Claude API 返回错误: type={error_type}, message={error_message}")
+                    logger.error(
+                        f"Claude API 返回错误: type={error_type}, message={error_message}"
+                    )
                     return f"API 请求失败: {error_message}"
                 else:
                     logger.error(f"无法从 Claude 响应中提取内容 | Response: {result}")
@@ -441,7 +524,9 @@ class LLMModel(Model):
                 if error_info := result.get("error"):
                     error_message = error_info.get("message", "未知错误")
                     error_type = error_info.get("type", "")
-                    logger.error(f"API 返回错误: type={error_type}, message={error_message}")
+                    logger.error(
+                        f"API 返回错误: type={error_type}, message={error_message}"
+                    )
                     return f"API 请求失败: {error_message}"
                 choice = result["choices"][0]
                 if message := choice.get("message"):
@@ -453,7 +538,8 @@ class LLMModel(Model):
                     return "无法解析API响应"
             except (KeyError, IndexError) as e:
                 logger.error(
-                    f"Failed to extract text from response: {e} | Response: {result}", command="LLMModel"
+                    f"Failed to extract text from response: {e} | Response: {result}",
+                    command="LLMModel",
                 )
                 return "无法解析API响应"
 
@@ -470,16 +556,27 @@ def get_configured_models() -> list[ModelConfig]:
         if isinstance(item, dict):
             try:
                 model_conf = ModelConfig(**item)
-                if not all([model_conf.name, model_conf.api_key, model_conf.model_name, model_conf.api_base]):
+                if not all(
+                    [
+                        model_conf.name,
+                        model_conf.api_key,
+                        model_conf.model_name,
+                        model_conf.api_base,
+                    ]
+                ):
                     logger.warning(
                         f"配置文件中第 {i + 1} 个模型缺少必要的字段 (name, api_key, model_name, api_base)，已跳过。"
                     )
                     continue
                 models.append(model_conf)
             except Exception as e:
-                logger.warning(f"解析配置文件中第 {i + 1} 个模型时出错: {e}，已跳过。配置: {item}")
+                logger.warning(
+                    f"解析配置文件中第 {i + 1} 个模型时出错: {e}，已跳过。配置: {item}"
+                )
         else:
-            logger.warning(f"配置文件 SUMMARY_MODELS 中第 {i + 1} 项不是字典格式，已跳过。")
+            logger.warning(
+                f"配置文件 SUMMARY_MODELS 中第 {i + 1} 项不是字典格式，已跳过。"
+            )
     return models
 
 
@@ -491,23 +588,33 @@ def get_default_model_name() -> str | None:
 def detect_model() -> Model:
     """根据当前配置和状态选择并实例化模型"""
     try:
-        from .handlers.model_control import find_model, get_configured_providers, parse_provider_model_string
+        from .handlers.model_control import (
+            find_model,
+            get_configured_providers,
+            parse_provider_model_string,
+        )
 
         logger.debug("[detect_model] 开始模型检测...")
 
         active_model_name_str = base_config.get("CURRENT_ACTIVE_MODEL_NAME")
-        logger.debug(f"[detect_model] 当前激活模型名称 (来自配置): {active_model_name_str}")
+        logger.debug(
+            f"[detect_model] 当前激活模型名称 (来自配置): {active_model_name_str}"
+        )
 
         selected_provider: ProviderConfig | None = None
         selected_model_detail: ModelDetail | None = None
 
-        active_prov_name, active_mod_name = parse_provider_model_string(active_model_name_str)
+        active_prov_name, active_mod_name = parse_provider_model_string(
+            active_model_name_str
+        )
 
         if active_prov_name and active_mod_name:
             found = find_model(active_prov_name, active_mod_name)
             if found:
                 selected_provider, selected_model_detail = found
-                logger.debug(f"[detect_model] 找到当前激活模型: {active_model_name_str}")
+                logger.debug(
+                    f"[detect_model] 找到当前激活模型: {active_model_name_str}"
+                )
             else:
                 logger.warning(
                     f"[detect_model] 配置的激活模型 '{active_model_name_str}' 无效或未找到，尝试回退..."
@@ -515,12 +622,16 @@ def detect_model() -> Model:
 
         if not selected_provider:
             default_model_name_str = base_config.get("SUMMARY_DEFAULT_MODEL_NAME")
-            default_prov_name, default_mod_name = parse_provider_model_string(default_model_name_str)
+            default_prov_name, default_mod_name = parse_provider_model_string(
+                default_model_name_str
+            )
             if default_prov_name and default_mod_name:
                 found = find_model(default_prov_name, default_mod_name)
                 if found:
                     selected_provider, selected_model_detail = found
-                    logger.warning(f"[detect_model] 回退到默认模型: {default_model_name_str}")
+                    logger.warning(
+                        f"[detect_model] 回退到默认模型: {default_model_name_str}"
+                    )
                 else:
                     logger.warning(
                         f"[detect_model] 配置的默认模型 '{default_model_name_str}' 也无效或未找到。"
@@ -531,7 +642,9 @@ def detect_model() -> Model:
             if providers and providers[0].models:
                 selected_provider = providers[0]
                 selected_model_detail = providers[0].models[0]
-                fallback_name = f"{selected_provider.name}/{selected_model_detail.model_name}"
+                fallback_name = (
+                    f"{selected_provider.name}/{selected_model_detail.model_name}"
+                )
                 logger.warning(f"[detect_model] 回退到第一个可用模型: {fallback_name}")
             else:
                 logger.warning("[detect_model] 无法找到任何可用模型配置！")
@@ -553,7 +666,9 @@ def detect_model() -> Model:
             else selected_provider.max_tokens
         )
 
-        logger.debug(f"[detect_model] 最终选定 Provider: {selected_provider.name}, Model: {final_model_name}")
+        logger.debug(
+            f"[detect_model] 最终选定 Provider: {selected_provider.name}, Model: {final_model_name}"
+        )
 
         proxy = base_config.get("PROXY")
         timeout = base_config.get("TIME_OUT", 180)

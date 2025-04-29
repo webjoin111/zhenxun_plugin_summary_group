@@ -2,17 +2,18 @@ from typing import Any
 
 from nonebot.adapters.onebot.v11 import Bot
 
-from zhenxun.configs.config import Config
 from zhenxun.services.log import logger
 from zhenxun.utils.platform import PlatformUtils
+
+# --- 导入统一配置对象 ---
+from .. import base_config
+# --- 结束导入 ---
 
 try:
     from zhenxun.models.chat_history import ChatHistory
 except ImportError:
     ChatHistory = None
     logger.warning("无法导入 ChatHistory 模型，数据库历史记录功能不可用。")
-
-base_config = Config.get("summary_group")
 
 from .health import with_retry
 

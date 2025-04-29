@@ -13,8 +13,6 @@ from zhenxun.utils.enum import LimitWatchType, PluginLimitType
 from zhenxun.utils.rules import admin_check
 from zhenxun.utils.utils import FreqLimiter
 
-from .utils.scheduler import set_scheduler
-
 require("nonebot_plugin_alconna")
 from arclet.alconna import (
     Alconna,
@@ -35,9 +33,10 @@ from nonebot_plugin_alconna import (
 
 require("nonebot_plugin_apscheduler")
 
-
 base_config = Config.get("summary_group")
+ai_config = Config.get("AI")
 
+from .utils.scheduler import set_scheduler
 
 try:
     cooldown_seconds = base_config.get("SUMMARY_COOL_DOWN", 60)
@@ -305,7 +304,7 @@ __plugin_meta__ = PluginMetadata(
         ],
         limits=[
             PluginCdBlock(
-                cd=Config.get_config("summary_group", "SUMMARY_COOL_DOWN", 60),
+                cd=base_config.get("SUMMARY_COOL_DOWN", 60),
                 limit_type=PluginLimitType.CD,
                 watch_type=LimitWatchType.USER,
                 status=True,
@@ -588,6 +587,7 @@ from .handlers.scheduler import (
     handle_summary_set as summary_set_handler_impl,
 )
 from .handlers.summary import handle_summary as summary_handler_impl
+from .store import store
 from .utils.summary import generate_help_image
 
 
@@ -743,9 +743,7 @@ async def _(
         new_name = provider_model.result
         success, message = handle_switch_model(new_name)
         if success:
-            Config.set_config(
-                "summary_group", "CURRENT_ACTIVE_MODEL_NAME", new_name, auto_save=True
-            )
+            base_config.set("CURRENT_ACTIVE_MODEL_NAME", new_name, auto_save=True)
             logger.info(f"AI 模型已通过配置持久化切换为: {new_name}")
             await UniMessage.text(f"已成功切换到模型: {new_name}").send(target)
         else:
@@ -760,7 +758,7 @@ async def _(
 async def _(
     bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget
 ):
-    current_model_name = Config.get_config("summary_group", "CURRENT_ACTIVE_MODEL_NAME")
+    current_model_name = base_config.get("CURRENT_ACTIVE_MODEL_NAME")
     message = handle_list_models(current_model_name)
     await UniMessage.text(message).send(target)
 
@@ -800,7 +798,7 @@ async def _(
 async def startup():
     await set_scheduler()
     validate_active_model_on_startup()
-    final_active_model = Config.get_config("summary_group", "CURRENT_ACTIVE_MODEL_NAME")
+    final_active_model = base_config.get("CURRENT_ACTIVE_MODEL_NAME")
     logger.info(
         f"群聊总结插件启动，当前激活模型: {final_active_model or '未指定或配置错误'}"
     )

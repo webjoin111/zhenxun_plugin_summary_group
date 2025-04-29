@@ -1,15 +1,12 @@
 from typing import TYPE_CHECKING
 
-from zhenxun.configs.config import Config
 from zhenxun.services.log import logger
 
+from .. import ai_config, base_config
 from ..model import ModelConfig, ModelDetail, ProviderConfig
 
 if TYPE_CHECKING:
     from ..model import Model
-
-base_config = Config.get("summary_group")
-ai_config = Config.get("AI")
 
 
 def parse_provider_model_string(name_str: str | None) -> tuple[str | None, str | None]:
@@ -170,9 +167,7 @@ def handle_switch_model(provider_model_name: str) -> tuple[bool, str]:
 
 def validate_active_model_on_startup():
     """在启动时验证并设置当前激活的模型名称配置"""
-    current_active_name_str = Config.get_config(
-        "summary_group", "CURRENT_ACTIVE_MODEL_NAME"
-    )
+    current_active_name_str = base_config.get("CURRENT_ACTIVE_MODEL_NAME")
     default_name_str = get_default_model_name()
     providers = get_configured_providers()
 
@@ -212,12 +207,7 @@ def validate_active_model_on_startup():
         final_name_to_set = None
 
     if final_name_to_set != current_active_name_str:
-        Config.set_config(
-            "summary_group",
-            "CURRENT_ACTIVE_MODEL_NAME",
-            final_name_to_set,
-            auto_save=True,
-        )
+        base_config.set("CURRENT_ACTIVE_MODEL_NAME", final_name_to_set, auto_save=True)
         if final_name_to_set:
             logger.info(f"已将当前激活模型配置更新为: {final_name_to_set}")
         else:

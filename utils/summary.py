@@ -3,12 +3,9 @@ from pathlib import Path
 from nonebot.adapters.onebot.v11 import Bot
 from nonebot_plugin_alconna.uniseg import MsgTarget, UniMessage
 
-from zhenxun.configs.config import Config
 from zhenxun.services.log import logger
 
-base_config = Config.get("summary_group")
-ai_config = Config.get("AI")
-
+from .. import base_config
 from ..model import ModelException
 from ..store import store
 
@@ -70,7 +67,6 @@ async def messages_summary(
                 f"任务：请分别详细总结每个用户 [{user_list_str}] 在以下聊天记录中的所有发言内容和主要观点。"
             )
 
-        # 如果有多个用户，添加额外的提示
         if len(target_user_names) > 1:
             prompt_parts.append(
                 f"请注意：这里有 {len(target_user_names)} 个不同的用户，必须分别对每个用户的发言进行单独总结."
@@ -93,7 +89,7 @@ async def messages_summary(
 
     logger.debug(f"最终构建的 Prompt: {final_prompt}", command="messages_summary")
 
-    final_model_name_str = Config.get_config("summary_group", "CURRENT_ACTIVE_MODEL_NAME")
+    final_model_name_str = base_config.get("CURRENT_ACTIVE_MODEL_NAME")
     if group_id:
         group_specific_model = store.get_group_setting(str(group_id), "default_model_name")
         if group_specific_model:

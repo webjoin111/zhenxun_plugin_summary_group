@@ -9,12 +9,9 @@ from zhenxun.services.log import logger
 require("nonebot_plugin_apscheduler")
 from nonebot_plugin_apscheduler import scheduler
 
-from zhenxun.configs.config import Config
-
+from .. import base_config
 from ..store import store
 from .health import check_system_health
-
-base_config = Config.get("summary_group")
 
 summary_semaphore = asyncio.Semaphore(2)
 summary_queue = asyncio.Queue()
@@ -413,7 +410,6 @@ async def process_summary_queue() -> None:
                             group_id=group_id,
                         )
                         try:
-                            # 创建群聊目标对象传递给 messages_summary
                             msg_target = Target.group(group_id=group_id)
                             summary = await messages_summary(
                                 target=msg_target,
@@ -601,8 +597,6 @@ async def set_scheduler() -> None:
         command="scheduler",
     )
 
-    # store 已经从模块导入，不需要再实例化
-
     cleaned_count = await store.cleanup_invalid_groups()
     if cleaned_count > 0:
         logger.debug(f"自动清理了 {cleaned_count} 个无效的群配置", command="scheduler")
@@ -661,10 +655,6 @@ async def set_scheduler() -> None:
         except ValueError as e:
             logger.error(f"群号 {group_id_str} 无效: {e}", command="scheduler")
             failed_count += 1
-
-            # 注意：这里应该使用 await，但由于在同步函数中，我们暂时不处理
-            # 在下一次启动时，cleanup_invalid_groups 会清理无效的群组
-            # await store.remove(int(group_id_str) if group_id_str.isdigit() else 0)
 
         except Exception as e:
             logger.error(
