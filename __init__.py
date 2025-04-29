@@ -1,5 +1,3 @@
-from typing import Any
-
 from nonebot import get_driver, require
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, PrivateMessageEvent
 from nonebot.permission import SUPERUSER
@@ -51,24 +49,33 @@ summary_cd_limiter = FreqLimiter(cooldown_seconds)
 logger.info(f"群聊总结插件冷却限制器已初始化，冷却时间: {cooldown_seconds} 秒")
 
 
-def validate_and_parse_msg_count(count_input: Any) -> int:
-    """验证并解析消息数量，确保在配置的范围内"""
+def validate_msg_count_range(count: int) -> int:
+    """验证消息数量是否在配置的范围内"""
+    logger.debug(
+        f"--- Validator validate_msg_count_range called with input: {count} ---"
+    )
+
+    min_len_val = base_config.get("SUMMARY_MIN_LENGTH")
+    max_len_val = base_config.get("SUMMARY_MAX_LENGTH")
+
+    if min_len_val is None or max_len_val is None:
+        logger.error(
+            "配置缺失: SUMMARY_MIN_LENGTH 或 SUMMARY_MAX_LENGTH 未在配置中找到或为 null。"
+        )
+        raise ValueError("配置错误: 缺少最小/最大消息长度设置。")
+
     try:
-        count = int(count_input)
+        min_len_int = int(min_len_val)
+        max_len_int = int(max_len_val)
     except (ValueError, TypeError):
-        logger.warning(f"消息数量验证失败: '{count_input!r}' 不是有效整数")
-        raise ValueError("消息数量必须是一个有效的整数")
+        logger.error("配置值 SUMMARY_MIN_LENGTH 或 SUMMARY_MAX_LENGTH 不是有效整数。")
+        raise ValueError("配置错误: 最小/最大消息长度不是有效整数。")
 
-    min_len = int(base_config.get("SUMMARY_MIN_LENGTH") or 50)
-    max_len = int(base_config.get("SUMMARY_MAX_LENGTH") or 1000)
-
-    if count < min_len:
-        logger.warning(f"消息数量验证失败: {count} < {min_len}")
-        raise ValueError(f"总结消息数量不能小于 {min_len}")
-
-    if count > max_len:
-        logger.warning(f"消息数量验证失败: {count} > {max_len}")
-        raise ValueError(f"总结消息数量不能超过 {max_len}")
+    if not (min_len_int <= count <= max_len_int):
+        logger.warning(
+            f"消息数量验证失败: {count} 不在范围 [{min_len_int}, {max_len_int}] 内"
+        )
+        raise ValueError(f"总结消息数量应在 {min_len_int} 到 {max_len_int} 之间")
 
     return count
 
@@ -587,7 +594,6 @@ from .handlers.scheduler import (
     handle_summary_set as summary_set_handler_impl,
 )
 from .handlers.summary import handle_summary as summary_handler_impl
-from .store import store
 from .utils.summary import generate_help_image
 
 
@@ -604,8 +610,16 @@ async def _(
     user_id_str = event.get_user_id()
     is_superuser = await SUPERUSER(bot, event)
 
+    try:
+        validate_msg_count_range(message_count)
+        logger.debug(f"消息数量 {message_count} 范围验证通过。")
+    except ValueError as e:
+        logger.warning(f"消息数量验证失败 (Handler): {e}")
+        await UniMessage.text(str(e)).send(target)
+        return
+
     logger.debug(
-        f"用户 {user_id_str} 触发总结，权限和冷却检查通过 (或为 Superuser)，开始执行核心逻辑。"
+        f"用户 {user_id_str} 触发总结，权限、冷却和参数验证通过 (或为 Superuser)，开始执行核心逻辑。"
     )
 
     arp = result.result
@@ -617,9 +631,19 @@ async def _(
 
     try:
         if not is_superuser:
-            logger.debug(f"即将为用户 {user_id_str} (非超级用户) 启动冷却...")
-            summary_cd_limiter.start_cd(user_id_str)
-            logger.debug(f"用户 {user_id_str} 冷却已启动。")
+            is_ready = summary_cd_limiter.check(user_id_str)
+            if not is_ready:
+                left = summary_cd_limiter.left_time(user_id_str)
+                logger.info(
+                    f"用户 {user_id_str} 触发总结命令，但在冷却中 ({left:.1f}s 剩余)"
+                )
+                await UniMessage.text(
+                    f"总结功能冷却中，请等待 {left:.1f} 秒后再试~"
+                ).send(target)
+                return
+            else:
+                summary_cd_limiter.start_cd(user_id_str)
+                logger.debug(f"用户 {user_id_str} (非超级用户) 冷却已启动。")
 
         await summary_handler_impl(
             bot, event, result, message_count, style, parts, target
@@ -671,7 +695,7 @@ async def _(
             count_to_validate = (
                 least_count_match if least_count_match is not None else default_count
             )
-            least_count = validate_and_parse_msg_count(count_to_validate)
+            least_count = validate_msg_count_range(int(count_to_validate))
 
         except ValueError as e:
             await UniMessage.text(str(e)).send(target)
