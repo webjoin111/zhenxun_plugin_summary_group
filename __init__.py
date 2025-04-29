@@ -115,7 +115,7 @@ __plugin_meta__ = PluginMetadata(
         "⚙️ **配置管理**\n"
         "  • `/总结配置` - 查看和管理总结设置\n\n"
         "ℹ️ **提示**\n"
-        f"  • 消息数量范围: {base_config.get('SUMMARY_MIN_LENGTH', 1)}-{base_config.get('SUMMARY_MAX_LENGTH', 1000)}\n"  # noqa: E501
+        f"  • 消息数量范围: {base_config.get('SUMMARY_MIN_LENGTH', 1)}-{base_config.get('SUMMARY_MAX_LENGTH', 1000)}\n"
         f"  • 冷却时间: {base_config.get('SUMMARY_COOL_DOWN', 60)} 秒\n\n"
         "📋 更多详细帮助请使用 `总结帮助` 命令查看"
     ),
@@ -288,6 +288,14 @@ __plugin_meta__ = PluginMetadata(
             ),
             RegisterConfig(
                 module="summary_group",
+                key="USE_DB_HISTORY",
+                value=False,
+                help="是否尝试从数据库(chat_history表)读取聊天记录 (实验性功能)",
+                default_value=False,
+                type=bool,
+            ),
+            RegisterConfig(
+                module="summary_group",
                 key="SUMMARY_DEFAULT_MODEL_NAME",
                 value="DeepSeek/deepseek-chat",
                 help="默认使用的 AI 模型名称 (格式: ProviderName/ModelName)",
@@ -315,7 +323,7 @@ summary_group = on_alconna(
             "message_count",
             int,
             Field(
-                completion=lambda: f"输入消息数量 ({base_config.get('SUMMARY_MIN_LENGTH', 1)}-{base_config.get('SUMMARY_MAX_LENGTH', 1000)})",  # noqa: E501
+                completion=lambda: f"输入消息数量 ({base_config.get('SUMMARY_MIN_LENGTH', 1)}-{base_config.get('SUMMARY_MAX_LENGTH', 1000)})",
             ),
         ],
         Option(
@@ -594,53 +602,24 @@ async def _(
     target: MsgTarget,
 ):
     user_id_str = event.get_user_id()
-    logger.debug(f"用户 {user_id_str} 尝试触发总结，即将检查冷却...")
-
     is_superuser = await SUPERUSER(bot, event)
+
+    logger.debug(
+        f"用户 {user_id_str} 触发总结，权限和冷却检查通过 (或为 Superuser)，开始执行核心逻辑。"
+    )
 
     arp = result.result
     target_group_id_match = arp.query("g.target_group_id") if arp else None
-    target_group_id_from_option = None
-    if target_group_id_match:
-        if not is_superuser:
-            await UniMessage.text("需要超级用户权限才能使用 -g 参数指定群聊。").send(
-                target
-            )
-            logger.warning(f"用户 {user_id_str} (非超级用户) 尝试使用 -g 参数")
-            return
-        target_group_id_from_option = int(target_group_id_match)
-        logger.debug(
-            f"超级用户 {user_id_str} 使用 -g 指定群聊: {target_group_id_from_option}"
-        )
-
-    if not is_superuser:
-        is_ready = summary_cd_limiter.check(user_id_str)
-        logger.debug(f"冷却检查结果 (非超级用户 {user_id_str}, is_ready): {is_ready}")
-
-        if not is_ready:
-            left = summary_cd_limiter.left_time(user_id_str)
-            logger.info(
-                f"用户 {user_id_str} 触发总结命令，但在冷却中 ({left:.1f}s 剩余)"
-            )
-            await UniMessage.text(f"总结功能冷却中，请等待 {left:.1f} 秒后再试~").send(
-                target
-            )
-            return
-        else:
-            logger.debug(f"用户 {user_id_str} 不在冷却中，继续执行。")
-    else:
-        logger.debug(f"用户 {user_id_str} 是超级用户，跳过冷却检查。")
+    if target_group_id_match and not is_superuser:
+        await UniMessage.text("需要超级用户权限才能使用 -g 参数指定群聊。").send(target)
+        logger.warning(f"用户 {user_id_str} (非超级用户) 尝试使用 -g 参数")
+        return
 
     try:
-        try:
-            message_count = validate_and_parse_msg_count(message_count)
-        except ValueError as e:
-            await UniMessage.text(str(e)).send(target)
-            return
-        except Exception as e:
-            logger.error(f"验证消息数量时出错: {e}", command="总结")
-            await UniMessage.text(f"验证消息数量时出错: {e}").send(target)
-            return
+        if not is_superuser:
+            logger.debug(f"即将为用户 {user_id_str} (非超级用户) 启动冷却...")
+            summary_cd_limiter.start_cd(user_id_str)
+            logger.debug(f"用户 {user_id_str} 冷却已启动。")
 
         await summary_handler_impl(
             bot, event, result, message_count, style, parts, target
@@ -651,6 +630,7 @@ async def _(
             command="总结",
             session=event.get_user_id(),
             group_id=getattr(event, "group_id", None),
+            exc_info=True,
         )
         try:
             await UniMessage.text(f"处理命令时出错: {e!s}").send(target)
