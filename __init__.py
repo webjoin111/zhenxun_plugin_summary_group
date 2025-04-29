@@ -655,8 +655,7 @@ async def _(
             f"处理总结命令时发生异常: {e}",
             command="总结",
             session=event.get_user_id(),
-            group_id=getattr(event, "group_id", None),
-            exc_info=True,
+            group_id=getattr(event, "group_id", None)
         )
         try:
             await UniMessage.text(f"处理命令时出错: {e!s}").send(target)

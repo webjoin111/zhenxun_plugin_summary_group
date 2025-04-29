@@ -1,10 +1,13 @@
 from .exceptions import (
+    DatabaseException,
+    ErrorCode,
     ImageGenerationException,
     MessageFetchException,
     MessageProcessException,
     ModelException,
     ScheduleException,
     SchedulerException,
+    StorageException,
     SummaryException,
     TimeParseException,
 )
@@ -33,12 +36,15 @@ from .summary import (
 )
 
 __all__ = [
+    "DatabaseException",
+    "ErrorCode",
     "ImageGenerationException",
     "MessageFetchException",
     "MessageProcessException",
     "ModelException",
     "ScheduleException",
     "SchedulerException",
+    "StorageException",
     "SummaryException",
     "TimeParseException",
     "check_cooldown",

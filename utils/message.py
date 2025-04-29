@@ -14,7 +14,7 @@ except ImportError:
     ChatHistory = None
     logger.warning("无法导入 ChatHistory 模型，数据库历史记录功能不可用。")
 
-from .exceptions import MessageFetchException, MessageProcessException
+from .exceptions import ErrorCode, MessageFetchException, MessageProcessException
 from .health import with_retry
 
 
@@ -81,7 +81,13 @@ async def get_raw_group_msg_history(bot: Bot, group_id: int, count: int) -> list
                 group_id=group_id,
                 e=e,
             )
-            raise MessageFetchException(f"数据库历史记录获取失败: {e!s}") from e
+            ex = MessageFetchException(
+                message=f"数据库历史记录获取失败: {e!s}",
+                code=ErrorCode.DB_QUERY_ERROR,
+                details={"error": str(e), "group_id": group_id, "count": count},
+                cause=e,
+            )
+            raise ex from e
     else:
         if use_db and not ChatHistory:
             logger.warning(
@@ -119,7 +125,13 @@ async def get_raw_group_msg_history(bot: Bot, group_id: int, count: int) -> list
                 group_id=group_id,
                 e=e,
             )
-            raise MessageFetchException(f"API 消息历史获取失败: {e!s}") from e
+            ex = MessageFetchException(
+                message=f"API 消息历史获取失败: {e!s}",
+                code=ErrorCode.MESSAGE_FETCH_FAILED,
+                details={"error": str(e), "group_id": group_id, "count": count},
+                cause=e,
+            )
+            raise ex from e
 
 
 async def process_message(
@@ -231,9 +243,18 @@ async def process_message(
             command="消息处理",
             e=e,
             group_id=group_id,
-            exc_info=True,
         )
-        raise MessageProcessException(f"消息处理失败: {e!s}") from e
+        ex = MessageProcessException(
+            message=f"消息处理失败: {e!s}",
+            code=ErrorCode.MESSAGE_PROCESS_FAILED,
+            details={
+                "error": str(e),
+                "group_id": group_id,
+                "message_count": len(messages) if messages else 0,
+            },
+            cause=e,
+        )
+        raise ex from e
 
 
 async def get_group_msg_history(
@@ -284,7 +305,13 @@ async def get_group_msg_history(
                 group_id=group_id,
                 e=e,
             )
-            raise MessageFetchException(f"获取或处理消息历史失败: {e!s}")
+            ex = MessageFetchException(
+                message=f"获取或处理消息历史失败: {e!s}",
+                code=ErrorCode.MESSAGE_FETCH_FAILED,
+                details={"error": str(e), "group_id": group_id, "count": count},
+                cause=e,
+            )
+            raise ex
 
     try:
         max_retries = base_config.get("MAX_RETRIES", 2)
@@ -303,7 +330,13 @@ async def get_group_msg_history(
             group_id=group_id,
             e=e,
         )
-        raise MessageFetchException(f"获取消息失败: {e!s}")
+        ex = MessageFetchException(
+            message=f"获取消息失败: {e!s}",
+            code=ErrorCode.MESSAGE_FETCH_FAILED,
+            details={"error": str(e), "group_id": group_id},
+            cause=e,
+        )
+        raise ex
 
 
 async def check_message_count(

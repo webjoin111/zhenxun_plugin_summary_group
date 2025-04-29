@@ -350,7 +350,7 @@ def get_model_instance_by_name(active_model_name_str: str | None) -> "Model":
         )
     except Exception as e:
         logger.error(
-            f"[get_model_instance_by_name] 实例化 LLMModel 时出错: {e}", exc_info=True
+            f"[get_model_instance_by_name] 实例化 LLMModel 时出错: {e}"
         )
         raise ModelException(f"初始化模型时发生错误: {e}")
 

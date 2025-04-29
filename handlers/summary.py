@@ -12,14 +12,17 @@ from zhenxun.models.statistics import Statistics
 from zhenxun.services.log import logger
 
 from .. import summary_cd_limiter
-from ..utils.message import (
+from ..utils.exceptions import (
     MessageFetchException,
     MessageProcessException,
+    ModelException,
+    SummaryException,
+)
+from ..utils.message import (
     get_raw_group_msg_history,
     process_message,
 )
 from ..utils.summary import (
-    ModelException,
     messages_summary,
     send_summary,
 )
@@ -318,7 +321,7 @@ async def handle_summary(
                 e=e,
             )
             await UniMessage.text(
-                f"获取群聊 {target_group_id_to_fetch} 消息历史失败: {e!s}"
+                f"获取群聊消息失败: {e.user_friendly_message if hasattr(e, 'user_friendly_message') else str(e)}"
             ).send(target)
             return
         except MessageProcessException as e:
@@ -329,7 +332,18 @@ async def handle_summary(
                 e=e,
             )
             await UniMessage.text(
-                f"处理群聊 {target_group_id_to_fetch} 消息失败: {e!s}"
+                f"处理群聊消息失败: {e.user_friendly_message if hasattr(e, 'user_friendly_message') else str(e)}"
+            ).send(target)
+            return
+        except SummaryException as e:
+            logger.error(
+                f"群聊总结操作失败: {e}",
+                command="总结",
+                group_id=target_group_id_to_fetch,
+                e=e,
+            )
+            await UniMessage.text(
+                f"群聊总结操作失败: {e.user_friendly_message if hasattr(e, 'user_friendly_message') else str(e)}"
             ).send(target)
             return
         except Exception as e:
@@ -369,6 +383,9 @@ async def handle_summary(
                 group_id=target_group_id_to_fetch,
                 e=e,
             )
+            await UniMessage.text(
+                f"生成总结失败: {e.user_friendly_message if hasattr(e, 'user_friendly_message') else str(e)}"
+            ).send(target)
             return
         except Exception as e:
             logger.error(
@@ -377,6 +394,7 @@ async def handle_summary(
                 group_id=target_group_id_to_fetch,
                 e=e,
             )
+            await UniMessage.text("生成总结时发生未知错误，请稍后再试。").send(target)
             return
 
         success = await send_summary(bot, target, summary)
@@ -429,5 +447,4 @@ async def handle_summary(
             command="总结",
             session=user_id_str,
             group_id=originating_group_id,
-            exc_info=True,
         )

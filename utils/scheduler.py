@@ -539,7 +539,6 @@ async def process_summary_queue() -> None:
                     logger.error(
                         f"处理任务 [{task_id}] 时发生意外错误: {task_e}",
                         group_id=group_id,
-                        exc_info=True,
                     )
                     task_status = "failed_unexpected"
                     error_msg = f"意外错误: {task_e!s}"
@@ -562,7 +561,7 @@ async def process_summary_queue() -> None:
 
         except Exception as loop_e:
             logger.error(
-                f"队列处理器主循环出错: {loop_e!s}", command="队列处理器", exc_info=True
+                f"队列处理器主循环出错: {loop_e!s}", command="队列处理器"
             )
             await asyncio.sleep(10)
         finally:

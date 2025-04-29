@@ -687,7 +687,7 @@ def detect_model() -> Model:
                 retry_delay=retry_delay,
             )
         except Exception as e:
-            logger.error(f"[detect_model] 实例化 LLMModel 时出错: {e}", exc_info=True)
+            logger.error(f"[detect_model] 实例化 LLMModel 时出错: {e}")
             raise ModelException(f"初始化模型时发生错误: {e}")
     except Exception as e:
         logger.error(f"[detect_model] 模型检测失败: {e}")
