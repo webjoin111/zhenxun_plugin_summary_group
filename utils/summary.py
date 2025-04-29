@@ -248,6 +248,9 @@ async def generate_help_image(_: str = "") -> bytes:
 - `总结切换模型 <Provider/Model>` _(限 Superuser)_ - 切换全局默认使用的 AI 模型
   - 示例: `总结切换模型 DeepSeek/deepseek-chat`
 
+- `总结密钥状态` _(限 Superuser)_ - 查看 API 密钥的状态信息
+  - 显示每个密钥的成功/失败次数和可用状态
+
 ## 💏 系统管理 (仅限 Superuser)
 
 - `总结调度状态 [-d]` - 查看所有定时任务的运行状态

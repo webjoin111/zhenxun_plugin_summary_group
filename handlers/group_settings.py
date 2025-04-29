@@ -4,6 +4,7 @@ from nonebot.permission import SUPERUSER
 from nonebot_plugin_alconna import CommandResult, Match, UniMessage
 from nonebot_plugin_alconna.uniseg import MsgTarget
 
+from zhenxun.configs.config import Config
 from zhenxun.models.ban_console import BanConsole
 from zhenxun.models.bot_console import BotConsole
 from zhenxun.models.group_console import GroupConsole
@@ -188,8 +189,8 @@ async def _switch_global_model(
     """内部函数：切换全局模型"""
     success, message = handle_switch_model(provider_model_name)
     if success:
-        base_config.set(
-            "CURRENT_ACTIVE_MODEL_NAME", provider_model_name, auto_save=True
+        Config.set_config(
+            "summary_group", "CURRENT_ACTIVE_MODEL_NAME", provider_model_name, True
         )
         logger.info(f"全局 AI 模型已切换为: {provider_model_name} by {operator_id}")
         await UniMessage.text(f"已成功切换全局激活模型为: {provider_model_name}").send(

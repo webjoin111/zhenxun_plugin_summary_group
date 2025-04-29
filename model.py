@@ -11,7 +11,8 @@ from zhenxun.utils.http_utils import AsyncHttpx
 from zhenxun.utils.user_agent import get_user_agent
 
 from . import base_config
-from .utils.exceptions import ModelException
+from .utils.exceptions import ErrorCode, ModelException
+from .utils.key_status import key_status_store
 
 
 class ModelConfig(BaseModel):
@@ -226,9 +227,23 @@ class LLMModel(Model):
             )
             raise ModelException("错误：未配置有效的 API 密钥。")
 
-        api_key = random.choice(self.api_keys)
+        available_keys = await key_status_store.get_available_keys(self.api_keys)
+
+        if not available_keys:
+            logger.warning(
+                f"[LLMModel._request_summary] 所有 API Keys 均不可用，尝试使用所有 Keys",
+                command="LLMModel",
+            )
+            available_keys = self.api_keys
+            random.shuffle(available_keys)
+
+        api_key = random.choice(available_keys)
+        key_id = api_key[:5] if len(api_key) >= 5 else api_key
+        if api_key.startswith("AIzaSy"):
+            key_id = f"AIzaS...{api_key[-8:]}"
+
         logger.debug(
-            f"使用模型 '{self.summary_model}' (随机选择 Key: {api_key[:5]}...) 发起请求",
+            f"使用模型 '{self.summary_model}' (选择 Key: {key_id}...) 发起请求",
             command="LLMModel",
         )
 
@@ -260,49 +275,105 @@ class LLMModel(Model):
             result = response.json()
             response_text = self._extract_response_text(result)
 
+            await key_status_store.record_success(api_key)
+
             logger.debug(
-                f"API request successful with key starting: {api_key[:5]}...",
+                f"API request successful with key: {key_id}...",
                 command="LLMModel",
             )
             return response_text
 
         except httpx.TimeoutException as e:
             logger.warning(
-                f"API request timed out for key {api_key[:5]}...: {e}",
+                f"API request timed out for key {key_id}...: {e}",
                 command="LLMModel",
             )
-            raise ModelException(f"API 请求超时: {e}") from e
-        except httpx.HTTPStatusError as e:
-            error_text = e.response.text[:200]
-            logger.error(
-                f"API request failed for key {api_key[:5]}... "
-                f"with status {e.response.status_code}: {error_text}",
-                command="LLMModel",
-                e=e,
+            await key_status_store.record_failure(
+                api_key,
+                None,
+                f"请求超时: {e}"
             )
             raise ModelException(
-                f"API 请求失败 (状态码 {e.response.status_code}): {error_text}"
+                f"API 请求超时: {e}",
+                code=ErrorCode.API_TIMEOUT
             ) from e
+
+        except httpx.HTTPStatusError as e:
+            status_code = e.response.status_code
+            error_text = e.response.text[:200]
+
+            logger.error(
+                f"API request failed for key {key_id}... "
+                f"with status {status_code}: {error_text}",
+                command="LLMModel",
+                e=e,
+            )
+
+            error_code = ErrorCode.API_REQUEST_FAILED
+            if status_code == 401:
+                error_code = ErrorCode.API_KEY_INVALID
+            elif status_code == 429:
+                error_code = ErrorCode.API_RATE_LIMITED
+            elif status_code == 503:
+                error_code = ErrorCode.API_QUOTA_EXCEEDED
+
+            await key_status_store.record_failure(
+                api_key,
+                status_code,
+                error_text
+            )
+
+            raise ModelException(
+                f"API 请求失败 (状态码 {status_code}): {error_text}",
+                code=error_code
+            ) from e
+
         except httpx.RequestError as e:
             logger.error(
-                f"API network request error for key {api_key[:5]}...: {e}",
+                f"API network request error for key {key_id}...: {e}",
                 command="LLMModel",
                 e=e,
             )
-            raise ModelException(f"网络请求错误: {e}") from e
+            await key_status_store.record_failure(
+                api_key,
+                None,
+                f"网络请求错误: {e}"
+            )
+            raise ModelException(
+                f"网络请求错误: {e}",
+                code=ErrorCode.API_REQUEST_FAILED
+            ) from e
+
         except (KeyError, IndexError, json.JSONDecodeError, ValueError) as e:
             logger.error(
-                f"Error processing API response for key {api_key[:5]}...: {e}",
+                f"Error processing API response for key {key_id}...: {e}",
                 command="LLMModel",
                 e=e,
             )
-            raise ModelException(f"处理 API 响应失败: {e}") from e
+            await key_status_store.record_failure(
+                api_key,
+                None,
+                f"响应解析错误: {e}"
+            )
+            raise ModelException(
+                f"处理 API 响应失败: {e}",
+                code=ErrorCode.API_RESPONSE_INVALID
+            ) from e
+
         except Exception as e:
             logger.error(
-                f"Unexpected error during API request for key {api_key[:5]}...: {e}",
+                f"Unexpected error during API request for key {key_id}...: {e}",
                 command="LLMModel",
             )
-            raise ModelException(f"发生意外错误: {e}") from e
+            await key_status_store.record_failure(
+                api_key,
+                None,
+                f"未知错误: {e}"
+            )
+            raise ModelException(
+                f"发生意外错误: {e}",
+                code=ErrorCode.UNKNOWN_ERROR
+            ) from e
 
     def _format_url(self, api_type: str, api_key: str) -> str:
         if api_type == "baidu":

@@ -116,7 +116,8 @@ __plugin_meta__ = PluginMetadata(
         "  • `总结 <消息数量> -p <风格>` - 指定总结风格\n"
         "  • `总结 <消息数量> @用户` - 只总结特定用户的消息\n"
         "  • `总结模型列表` - 查看可用的AI模型\n"
-        "  • `总结切换模型 <Provider/Model>` - 切换AI模型 (限超管)\n\n"
+        "  • `总结切换模型 <Provider/Model>` - 切换AI模型 (限超管)\n"
+        "  • `总结密钥状态` - 查看API密钥状态 (限超管)\n\n"
         "⏱️ **定时功能**\n"
         "  • `定时总结 <时间>` - 设置定时总结 (需管理员)\n"
         "  • `定时总结取消` - 取消定时总结\n\n"
@@ -507,7 +508,19 @@ summary_list_models = on_alconna(
     ),
     priority=5,
     block=True,
+)
+
+summary_key_status = on_alconna(
+    Alconna(
+        "总结密钥状态",
+        meta=CommandMeta(
+            description="查看 API Key 的状态信息（仅限超级用户）",
+            usage="总结密钥状态",
+        ),
+    ),
     permission=SUPERUSER,
+    priority=5,
+    block=True,
 )
 
 summary_help = on_alconna(
@@ -582,6 +595,7 @@ from .handlers.health import (
     handle_system_repair as system_repair_handler_impl,
 )
 from .handlers.model_control import (
+    handle_key_status,
     handle_list_models,
     handle_switch_model,
     validate_active_model_on_startup,
@@ -765,7 +779,7 @@ async def _(
         new_name = provider_model.result
         success, message = handle_switch_model(new_name)
         if success:
-            base_config.set("CURRENT_ACTIVE_MODEL_NAME", new_name, auto_save=True)
+            Config.set_config("summary_group", "CURRENT_ACTIVE_MODEL_NAME", new_name, True)
             logger.info(f"AI 模型已通过配置持久化切换为: {new_name}")
             await UniMessage.text(f"已成功切换到模型: {new_name}").send(target)
         else:
@@ -782,6 +796,14 @@ async def _(
 ):
     current_model_name = base_config.get("CURRENT_ACTIVE_MODEL_NAME")
     message = handle_list_models(current_model_name)
+    await UniMessage.text(message).send(target)
+
+
+@summary_key_status.handle()
+async def _(
+    bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget
+):
+    message = await handle_key_status()
     await UniMessage.text(message).send(target)
 
 

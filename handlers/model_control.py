@@ -1,9 +1,12 @@
+from datetime import datetime
 from typing import TYPE_CHECKING
 
+from zhenxun.configs.config import Config
 from zhenxun.services.log import logger
 
 from .. import ai_config, base_config
 from ..model import ModelConfig, ModelDetail, ProviderConfig
+from ..utils.key_status import key_status_store
 
 if TYPE_CHECKING:
     from ..model import Model
@@ -207,7 +210,7 @@ def validate_active_model_on_startup():
         final_name_to_set = None
 
     if final_name_to_set != current_active_name_str:
-        base_config.set("CURRENT_ACTIVE_MODEL_NAME", final_name_to_set, auto_save=True)
+        Config.set_config("summary_group", "CURRENT_ACTIVE_MODEL_NAME", final_name_to_set, True)
         if final_name_to_set:
             logger.info(f"已将当前激活模型配置更新为: {final_name_to_set}")
         else:
@@ -355,6 +358,42 @@ def get_model_instance_by_name(active_model_name_str: str | None) -> "Model":
         raise ModelException(f"初始化模型时发生错误: {e}")
 
 
+async def handle_key_status() -> str:
+    """处理查询 API Key 状态的逻辑"""
+    summary = await key_status_store.get_key_status_summary()
+
+    message = "API Key 状态摘要：\n"
+    message += f"总计 Key 数量: {summary['total_keys']}\n"
+    message += f"可用 Key 数量: {summary['available_keys']}\n"
+    message += f"不可用 Key 数量: {summary['unavailable_keys']}\n\n"
+
+    if summary['keys']:
+        message += "Key 详情：\n"
+        for key_id, data in summary['keys'].items():
+            status_text = "正常" if data['status'] == "normal" else "不可用"
+            message += f"- Key {key_id}: {status_text}\n"
+            message += f"  成功次数: {data['success_count']}, 失败次数: {data['failure_count']}\n"
+
+            if data['status'] != "normal":
+                recovery_in_seconds = data.get('recovery_in_seconds', 0)
+                if recovery_in_seconds > 0:
+                    minutes = int(recovery_in_seconds // 60)
+                    seconds = int(recovery_in_seconds % 60)
+                    message += f"  预计恢复时间: {minutes}分{seconds}秒后\n"
+                else:
+                    message += "  状态: 即将恢复\n"
+
+            message += "\n"
+    else:
+        message += "尚未记录任何 Key 的使用情况。"
+
+    # 添加当前活跃模型信息
+    current_model_name = get_default_model_name()
+    message += f"\n当前活跃模型: {current_model_name}"
+
+    return message.strip()
+
+
 __all__ = [
     "ModelConfig",
     "find_model",
@@ -362,6 +401,7 @@ __all__ = [
     "get_configured_providers",
     "get_default_model_name",
     "get_model_instance_by_name",
+    "handle_key_status",
     "handle_list_models",
     "handle_switch_model",
     "parse_provider_model_string",
