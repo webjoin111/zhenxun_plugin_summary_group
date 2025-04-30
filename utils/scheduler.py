@@ -275,10 +275,11 @@ async def _fetch_and_process_task_messages(
     )
     message_count = 0
     try:
-        response = await bot.get_group_msg_history(
-            group_id=group_id, count=least_message_count
+        from .message import get_raw_group_msg_history
+
+        messages = await get_raw_group_msg_history(
+            bot, group_id, least_message_count
         )
-        messages = response.get("messages", [])
         message_count = len(messages)
         logger.debug(
             f"[{task_id}] 群 {group_id} 获取到 {message_count} 条消息",

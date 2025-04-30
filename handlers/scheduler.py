@@ -637,9 +637,9 @@ async def handle_summary_remove(
             "specific_group_by_superuser",
             "current_group_by_admin",
         ]:
-            from ..utils.scheduler import remove_schedule_for_group
+            from ..utils.scheduler import remove_scheduler
 
-            removed = remove_schedule_for_group(target_group_id)
+            removed = remove_scheduler(target_group_id)
             if removed:
                 response_msg = f"已成功取消群 {target_group_id} 的定时总结任务。"
                 await UniMessage.text(response_msg).send(target)
