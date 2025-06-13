@@ -16,24 +16,22 @@ from zhenxun.models.group_console import GroupConsole
 from zhenxun.models.statistics import Statistics
 
 from .. import base_config
+from ..config import summary_config
 from ..store import store
-from .exceptions import (
+from .core import (
     MessageFetchException,
     MessageProcessException,
     ModelException,
+    check_system_health,
 )
-from .health import check_system_health
-from .message import process_message
-from .summary import messages_summary, send_summary
+from .summary_generation import messages_summary, send_summary
 
-summary_semaphore = asyncio.Semaphore(base_config.get("CONCURRENT_TASKS", 2))
+summary_semaphore = asyncio.Semaphore(summary_config.get_concurrent_tasks())
 summary_queue = asyncio.Queue()
 task_processor_started = False
 
 
-async def scheduler_send_summary(
-    group_id: int, least_message_count: int, style: str | None = None
-) -> None:
+async def scheduler_send_summary(group_id: int, least_message_count: int, style: str | None = None) -> None:
     try:
         logger.debug(
             f"正在将群 {group_id} 的总结任务添加到队列，消息数量: {least_message_count}, 风格: {style or '默认'}",
@@ -174,9 +172,7 @@ def verify_processor_status() -> int:
     import asyncio
 
     all_tasks = asyncio.all_tasks()
-    processor_tasks = [
-        t for t in all_tasks if t.get_name() == "summary_queue_processor"
-    ]
+    processor_tasks = [t for t in all_tasks if t.get_name() == "summary_queue_processor"]
 
     logger.debug(f"当前队列处理器任务数量: {len(processor_tasks)}", command="scheduler")
 
@@ -199,9 +195,7 @@ def verify_processor_status() -> int:
             pass
         else:
             running_tasks += 1
-            logger.debug(
-                "队列处理器正在运行中", command="scheduler", group_id=task.get_name()
-            )
+            logger.debug("队列处理器正在运行中", command="scheduler", group_id=task.get_name())
 
     if running_tasks == 0:
         logger.warning("未找到运行中的队列处理器任务，正在创建...", command="scheduler")
@@ -221,9 +215,7 @@ def check_scheduler_status() -> list:
     jobs = scheduler.get_jobs()
     logger.debug(f"当前调度器中的任务数量: {len(jobs)}", command="scheduler")
     for job in jobs:
-        logger.debug(
-            f"任务ID: {job.id}, 下次运行时间: {job.next_run_time}", command="scheduler"
-        )
+        logger.debug(f"任务ID: {job.id}, 下次运行时间: {job.next_run_time}", command="scheduler")
     return jobs
 
 
@@ -233,9 +225,7 @@ async def _perform_task_pre_checks(bot: Bot, group_id_str: str, task_id: str) ->
     bot_id = bot.self_id
     try:
         if not await BotConsole.get_bot_status(bot_id):
-            logger.info(
-                f"Bot {bot_id} 未激活, 跳过任务 [{task_id}].", group_id=group_id_str
-            )
+            logger.info(f"Bot {bot_id} 未激活, 跳过任务 [{task_id}].", group_id=group_id_str)
             return False
         if await BotConsole.is_block_plugin(bot_id, plugin_name):
             logger.info(
@@ -267,7 +257,7 @@ async def _perform_task_pre_checks(bot: Bot, group_id_str: str, task_id: str) ->
 
 async def _fetch_and_process_task_messages(
     bot: Bot, group_id: int, least_message_count: int, task_id: str
-) -> tuple[list[dict[str, str]] | None, int]:
+) -> tuple[list[dict[str, str]] | None, dict[str, str], int]:
     """获取、过滤和处理消息"""
     logger.debug(
         f"[{task_id}] 获取群 {group_id} 的消息历史，请求 {least_message_count} 条消息",
@@ -275,14 +265,15 @@ async def _fetch_and_process_task_messages(
     )
     message_count = 0
     try:
-        from .message import get_raw_group_msg_history
+        from .message_processing import get_group_messages
 
-        messages = await get_raw_group_msg_history(
-            bot, group_id, least_message_count
+        use_db = base_config.get("USE_DB_HISTORY", False)
+        processed_messages, user_info_cache = await get_group_messages(
+            bot, group_id, least_message_count, use_db=use_db
         )
-        message_count = len(messages)
+        message_count = len(processed_messages)
         logger.debug(
-            f"[{task_id}] 群 {group_id} 获取到 {message_count} 条消息",
+            f"[{task_id}] 群 {group_id} 获取并处理了 {message_count} 条消息",
             group_id=group_id,
         )
 
@@ -294,41 +285,36 @@ async def _fetch_and_process_task_messages(
             )
             return None, message_count
 
-        logger.debug(f"[{task_id}] 处理群 {group_id} 的消息内容", group_id=group_id)
-        processed_data_tuple = await process_message(messages, bot, group_id)
-        processed_messages = processed_data_tuple[0]
-
         if not processed_messages:
             logger.warning(
                 f"[{task_id}] 群 {group_id} 处理后没有有效消息，跳过总结",
                 group_id=group_id,
             )
-            return None, message_count
+            return None, {}, message_count
 
         logger.debug(
             f"[{task_id}] 处理得到 {len(processed_messages)} 条有效消息",
             group_id=group_id,
         )
-        return processed_messages, message_count
+        return processed_messages, user_info_cache, message_count
 
     except (MessageFetchException, MessageProcessException) as e:
-        logger.error(
-            f"[{task_id}] 获取或处理群 {group_id} 消息失败: {e}", group_id=group_id, e=e
-        )
-        return None, message_count
+        logger.error(f"[{task_id}] 获取或处理群 {group_id} 消息失败: {e}", group_id=group_id, e=e)
+        return None, {}, message_count
     except Exception as e:
         logger.error(
             f"[{task_id}] 获取或处理群 {group_id} 消息时发生未知错误: {e}",
             group_id=group_id,
             e=e,
         )
-        return None, message_count
+        return None, {}, message_count
 
 
 async def _generate_and_send_task_summary(
     bot: Bot,
     group_id: int,
     processed_messages: list[dict[str, str]],
+    user_info_cache: dict[str, str],
     style: str | None,
     task_id: str,
 ) -> bool:
@@ -350,16 +336,12 @@ async def _generate_and_send_task_summary(
         )
 
         logger.debug(f"[{task_id}] 向群 {group_id} 发送总结", group_id=group_id)
-        send_success = await send_summary(bot, msg_target, summary)
+        send_success = await send_summary(bot, msg_target, summary, user_info_cache)
         if send_success:
-            logger.debug(
-                f"[{task_id}] 群 {group_id} 定时总结发送完成", group_id=group_id
-            )
+            logger.debug(f"[{task_id}] 群 {group_id} 定时总结发送完成", group_id=group_id)
             return True
         else:
-            logger.warning(
-                f"[{task_id}] 群 {group_id} 定时总结发送失败", group_id=group_id
-            )
+            logger.warning(f"[{task_id}] 群 {group_id} 定时总结发送失败", group_id=group_id)
             return False
 
     except ModelException as e:
@@ -394,9 +376,7 @@ async def _record_task_statistics(
     except Exception:
         logger.warning("无法获取 Bot 实例以记录 Bot ID")
 
-    task_id = (
-        f"summary_task_{group_id}_{metadata.get('scheduled_time', 'unknown_time')}"
-    )
+    task_id = f"summary_task_{group_id}_{metadata.get('scheduled_time', 'unknown_time')}"
     try:
         stat_data = {
             "user_id": str(metadata.get("user_id", "scheduler")),
@@ -426,9 +406,9 @@ async def _record_task_statistics(
 
 
 async def process_summary_queue() -> None:
-    """处理待执行的总结任务队列 (重构版)"""
+    """处理待执行的总结任务队列"""
     logger.debug("总结任务队列处理器已启动，开始监听队列", command="队列处理器")
-    concurrent_tasks = base_config.get("CONCURRENT_TASKS", 2)
+    concurrent_tasks = summary_config.get_concurrent_tasks()
     semaphore = asyncio.Semaphore(concurrent_tasks)
 
     while True:
@@ -464,9 +444,7 @@ async def process_summary_queue() -> None:
             )
 
             async with semaphore:
-                logger.debug(
-                    f"开始处理任务 [{task_id}]: 群 {group_id} 的总结", group_id=group_id
-                )
+                logger.debug(f"开始处理任务 [{task_id}]: 群 {group_id} 的总结", group_id=group_id)
                 task_status = "failed_unknown"
                 error_msg = None
 
@@ -481,29 +459,21 @@ async def process_summary_queue() -> None:
                         )
                         task_status = "failed_get_bot"
                         error_msg = f"获取 Bot 实例失败: {e!s}"
-                        await _record_task_statistics(
-                            metadata, group_id, 0, style, task_status, error_msg
-                        )
+                        await _record_task_statistics(metadata, group_id, 0, style, task_status, error_msg)
                         continue
 
                     if not await _perform_task_pre_checks(bot, group_id_str, task_id):
                         task_status = "skipped_precheck"
-                        await _record_task_statistics(
-                            metadata, group_id, 0, style, task_status
-                        )
+                        await _record_task_statistics(metadata, group_id, 0, style, task_status)
                         continue
 
                     (
                         processed_messages,
+                        user_info_cache,
                         message_count,
-                    ) = await _fetch_and_process_task_messages(
-                        bot, group_id, least_message_count, task_id
-                    )
+                    ) = await _fetch_and_process_task_messages(bot, group_id, least_message_count, task_id)
                     if processed_messages is None:
-                        if (
-                            message_count < base_config.get("SUMMARY_MIN_LENGTH", 50)
-                            and message_count > 0
-                        ):
+                        if message_count < base_config.get("SUMMARY_MIN_LENGTH", 50) and message_count > 0:
                             task_status = "skipped_msg_count"
                         else:
                             task_status = "failed_fetch_process"
@@ -519,7 +489,7 @@ async def process_summary_queue() -> None:
                         continue
 
                     send_success = await _generate_and_send_task_summary(
-                        bot, group_id, processed_messages, style, task_id
+                        bot, group_id, processed_messages, user_info_cache, style, task_id
                     )
                     if send_success:
                         task_status = "success"
@@ -561,18 +531,14 @@ async def process_summary_queue() -> None:
                     )
 
         except Exception as loop_e:
-            logger.error(
-                f"队列处理器主循环出错: {loop_e!s}", command="队列处理器"
-            )
+            logger.error(f"队列处理器主循环出错: {loop_e!s}", command="队列处理器")
             await asyncio.sleep(10)
         finally:
             if group_id is not None:
                 try:
                     summary_queue.task_done()
                 except ValueError:
-                    logger.warning(
-                        f"任务 [{task_id}] 可能已被标记完成", command="队列处理器"
-                    )
+                    logger.warning(f"任务 [{task_id}] 可能已被标记完成", command="队列处理器")
                 except Exception as td_e:
                     logger.error(
                         f"标记任务 [{task_id}] 完成时出错: {td_e}",
@@ -582,22 +548,16 @@ async def process_summary_queue() -> None:
 
 
 async def set_scheduler() -> None:
-    import asyncio
-
     global task_processor_started
     if not task_processor_started:
-        logger.info(
-            "初始化调度器: 启动 summary_group 队列处理器...", command="scheduler"
-        )
+        logger.info("初始化调度器: 启动 summary_group 队列处理器...", command="scheduler")
         try:
             _task = asyncio.create_task(process_summary_queue())
             _task.set_name("summary_queue_processor")
             task_processor_started = True
             logger.info("summary_group 队列处理器已成功启动", command="scheduler")
         except Exception as e:
-            logger.error(
-                f"启动 summary_group 队列处理器失败: {e}", command="scheduler", e=e
-            )
+            logger.error(f"启动 summary_group 队列处理器失败: {e}", command="scheduler", e=e)
     else:
         logger.debug("summary_group 队列处理器已在运行", command="scheduler")
 
@@ -623,9 +583,7 @@ async def set_scheduler() -> None:
         logger.debug(f"自动清理了 {cleaned_count} 个无效的群配置", command="scheduler")
 
     group_configs = store.schedule_data.items()
-    logger.debug(
-        f"加载了 {len(group_configs)} 个群组的定时总结配置", command="scheduler"
-    )
+    logger.debug(f"加载了 {len(group_configs)} 个群组的定时总结配置", command="scheduler")
 
     successful_count = 0
     failed_count = 0
@@ -678,9 +636,7 @@ async def set_scheduler() -> None:
             failed_count += 1
 
         except Exception as e:
-            logger.error(
-                f"为群 {group_id_str} 设置定时任务失败: {e}", command="scheduler"
-            )
+            logger.error(f"为群 {group_id_str} 设置定时任务失败: {e}", command="scheduler")
             failed_count += 1
 
     if successful_count > 0:
@@ -689,9 +645,7 @@ async def set_scheduler() -> None:
             command="scheduler",
         )
     if failed_count > 0:
-        logger.warning(
-            f"有 {failed_count} 个群组的定时任务设置失败", command="scheduler"
-        )
+        logger.warning(f"有 {failed_count} 个群组的定时任务设置失败", command="scheduler")
 
 
 def remove_scheduler(group_id: int) -> bool:
@@ -705,6 +659,19 @@ def remove_scheduler(group_id: int) -> bool:
         return False
 
 
+def get_next_run_time_for_group(group_id: int):
+    """获取指定群组的下次运行时间"""
+    job_id = f"summary_group_{group_id}"
+    try:
+        job = scheduler.get_job(job_id)
+        if job and job.next_run_time:
+            return job.next_run_time
+        return None
+    except Exception as e:
+        logger.warning(f"获取群 {group_id} 下次运行时间失败: {e}", command="scheduler", e=e)
+        return None
+
+
 _background_tasks = set()
 
 
@@ -712,11 +679,7 @@ async def stop_tasks() -> None:
     global task_processor_started
     logger.info("正在停止所有后台任务...", command="shutdown")
 
-    processor_tasks = [
-        task
-        for task in asyncio.all_tasks()
-        if task.get_name() == "summary_queue_processor"
-    ]
+    processor_tasks = [task for task in asyncio.all_tasks() if task.get_name() == "summary_queue_processor"]
     for task in processor_tasks:
         if not task.done():
             task.cancel()

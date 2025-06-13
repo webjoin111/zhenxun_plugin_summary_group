@@ -5,24 +5,19 @@ from nonebot.permission import SUPERUSER
 from nonebot_plugin_alconna import At, CommandResult, Match, Text
 from nonebot_plugin_alconna.uniseg import MsgTarget, UniMessage
 
-from zhenxun.models.ban_console import BanConsole
-from zhenxun.models.bot_console import BotConsole
-from zhenxun.models.group_console import GroupConsole
 from zhenxun.models.statistics import Statistics
 from zhenxun.services.log import logger
 
-from .. import summary_cd_limiter
-from ..utils.exceptions import (
+from .. import base_config, summary_cd_limiter
+from ..utils.access_control import check_command_preconditions
+from ..utils.core import (
     MessageFetchException,
     MessageProcessException,
     ModelException,
     SummaryException,
 )
-from ..utils.message import (
-    get_raw_group_msg_history,
-    process_message,
-)
-from ..utils.summary import (
+from ..utils.message_processing import get_group_messages
+from ..utils.summary_generation import (
     messages_summary,
     send_summary,
 )
@@ -38,10 +33,7 @@ async def handle_summary(
     target: MsgTarget,
 ):
     user_id_str = event.get_user_id()
-    originating_group_id = (
-        event.group_id if isinstance(event, GroupMessageEvent) else None
-    )
-    bot_id = bot.self_id
+    originating_group_id = event.group_id if isinstance(event, GroupMessageEvent) else None
     plugin_name = "summary_group"
     is_superuser = await SUPERUSER(bot, event)
 
@@ -72,59 +64,7 @@ async def handle_summary(
         ).send(target)
         return
 
-    try:
-        if not await BotConsole.get_bot_status(bot_id):
-            logger.info(
-                f"Bot {bot_id} is inactive, skipping command.",
-                command="总结",
-                session=user_id_str,
-                group_id=originating_group_id,
-            )
-            return
-
-        if await BotConsole.is_block_plugin(bot_id, plugin_name):
-            logger.info(
-                f"Plugin '{plugin_name}' is blocked for Bot {bot_id}.",
-                command="总结",
-                session=user_id_str,
-            )
-            return
-
-        if originating_group_id:
-            if await GroupConsole.is_block_plugin(originating_group_id, plugin_name):
-                logger.info(
-                    f"Plugin '{plugin_name}' is blocked for Group {originating_group_id}.",
-                    command="总结",
-                    session=user_id_str,
-                    group_id=originating_group_id,
-                )
-                await UniMessage.text("群聊总结功能在本群已被禁用。").send(target)
-                return
-            if await BanConsole.is_ban(None, originating_group_id):
-                logger.info(
-                    f"Group {originating_group_id} is banned.",
-                    command="总结",
-                    group_id=originating_group_id,
-                )
-                return
-        if await BanConsole.is_ban(user_id_str, originating_group_id):
-            logger.info(
-                f"User {user_id_str} is banned in Group {originating_group_id or 'global'}.",
-                command="总结",
-                session=user_id_str,
-                group_id=originating_group_id,
-            )
-            return
-
-    except Exception as e:
-        logger.error(
-            f"执行命令前检查出错: {e}",
-            command="总结",
-            session=user_id_str,
-            group_id=originating_group_id,
-            e=e,
-        )
-        await UniMessage.text("执行命令前检查出错，请联系管理员。").send(target)
+    if not await check_command_preconditions(bot, event, plugin_name, target):
         return
 
     logger.debug(
@@ -154,9 +94,7 @@ async def handle_summary(
                     stripped_text = part.text.strip()
                     if stripped_text:
                         content_parts.append(stripped_text)
-                        logger.debug(
-                            f"Added content part: {stripped_text}", command="总结"
-                        )
+                        logger.debug(f"Added content part: {stripped_text}", command="总结")
 
         arp = result.result
         if arp and "$extra" in arp.main_args:
@@ -209,9 +147,7 @@ async def handle_summary(
         )
 
         feedback_target_group_part = (
-            f"群聊 {target_group_id_to_fetch} 的"
-            if target_group_id_from_option
-            else "群聊"
+            f"群聊 {target_group_id_to_fetch} 的" if target_group_id_from_option else "群聊"
         )
         feedback = f"正在生成{feedback_target_group_part}总结{'（风格: ' + style_value + '）' if style_value else ''}"
         feedback += f"{'（指定用户）' if target_user_ids else ''}，请稍候..."
@@ -240,78 +176,33 @@ async def handle_summary(
                 command="总结",
                 group_id=target_group_id_to_fetch,
             )
-            raw_messages = await get_raw_group_msg_history(
-                bot, target_group_id_to_fetch, message_count
-            )
-            if not raw_messages:
-                logger.warning(
-                    f"未能获取到群 {target_group_id_to_fetch} 的聊天记录",
-                    command="总结",
-                    group_id=target_group_id_to_fetch,
-                )
-                await UniMessage.text(
-                    f"未能获取到群聊 {target_group_id_to_fetch} 的聊天记录。"
-                ).send(target)
-                return
-            logger.debug(
-                f"成功获取 {len(raw_messages)} 条原始消息",
-                command="总结",
-                group_id=target_group_id_to_fetch,
+            use_db = base_config.get("USE_DB_HISTORY", False)
+            processed_messages, user_info_cache = await get_group_messages(
+                bot, target_group_id_to_fetch, message_count, use_db=use_db, target_user_ids=target_user_ids
             )
 
-            filtered_messages = raw_messages
-            if target_user_ids:
-                filtered_messages = [
-                    msg
-                    for msg in raw_messages
-                    if str(msg.get("user_id")) in target_user_ids
-                ]
-                logger.debug(
-                    f"过滤后剩余 {len(filtered_messages)} 条消息 (来自用户: {target_user_ids})",
-                    command="总结",
-                    group_id=target_group_id_to_fetch,
-                )
-                if not filtered_messages:
-                    msg = f"在群聊 {target_group_id_to_fetch} 中未能获取到指定用户的有效聊天记录。"
-                    logger.warning(
-                        f"群 {target_group_id_to_fetch}: {msg}",
-                        command="总结",
-                        group_id=target_group_id_to_fetch,
-                    )
-                    await UniMessage.text(msg).send(target)
-                    return
-
-            logger.debug(
-                f"开始处理群 {target_group_id_to_fetch} 的消息...",
-                command="总结",
-                group_id=target_group_id_to_fetch,
-            )
-
-            processed_messages, user_info_cache = await process_message(
-                filtered_messages, bot, target_group_id_to_fetch
-            )
             if not processed_messages:
+                if target_user_ids:
+                    msg = f"在群聊 {target_group_id_to_fetch} 中未能获取到指定用户的有效聊天记录。"
+                else:
+                    msg = f"未能获取到群聊 {target_group_id_to_fetch} 的聊天记录。"
                 logger.warning(
-                    f"处理消息后群 {target_group_id_to_fetch} 没有有效内容",
+                    f"群 {target_group_id_to_fetch}: {msg}",
                     command="总结",
                     group_id=target_group_id_to_fetch,
                 )
-                await UniMessage.text("未能找到有效消息进行处理。").send(target)
+                await UniMessage.text(msg).send(target)
                 return
+
             logger.debug(
-                f"成功处理消息，得到 {len(processed_messages)} 条记录",
+                f"成功获取并处理消息，得到 {len(processed_messages)} 条记录",
                 command="总结",
                 group_id=target_group_id_to_fetch,
             )
 
             if target_user_ids:
-                target_user_names = [
-                    user_info_cache.get(uid, f"用户{uid[-4:]}")
-                    for uid in target_user_ids
-                ]
-                logger.debug(
-                    f"将对用户 {target_user_names} 进行过滤总结", command="总结"
-                )
+                target_user_names = [user_info_cache.get(uid, f"用户{uid[-4:]}") for uid in target_user_ids]
+                logger.debug(f"将对用户 {target_user_names} 进行过滤总结", command="总结")
 
         except MessageFetchException as e:
             logger.error(
@@ -397,7 +288,7 @@ async def handle_summary(
             await UniMessage.text("生成总结时发生未知错误，请稍后再试。").send(target)
             return
 
-        success = await send_summary(bot, target, summary)
+        success = await send_summary(bot, target, summary, user_info_cache)
 
         if success:
             logger.debug(
@@ -409,9 +300,7 @@ async def handle_summary(
             try:
                 await Statistics.create(
                     user_id=str(user_id_str),
-                    group_id=(
-                        str(originating_group_id) if originating_group_id else None
-                    ),
+                    group_id=(str(originating_group_id) if originating_group_id else None),
                     plugin_name="summary_group",
                     bot_id=str(bot.self_id),
                     message_count=message_count,
@@ -426,9 +315,7 @@ async def handle_summary(
                     command="总结",
                 )
             except Exception as stat_e:
-                logger.error(
-                    f"记录插件调用统计失败: {stat_e}", command="总结", e=stat_e
-                )
+                logger.error(f"记录插件调用统计失败: {stat_e}", command="总结", e=stat_e)
             logger.debug(
                 f"成功完成群 {target_group_id_to_fetch} 的总结命令",
                 command="总结",

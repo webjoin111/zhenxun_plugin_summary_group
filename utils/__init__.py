@@ -1,7 +1,15 @@
-from .exceptions import (
+from .access_control import (
+    check_command_preconditions,
+    check_scheduler_preconditions,
+    ensure_group,
+    require_plugin_enabled,
+)
+from .core import (
     DatabaseException,
     ErrorCode,
     ImageGenerationException,
+    KeyStatus,
+    KeyStatusStore,
     MessageFetchException,
     MessageProcessException,
     ModelException,
@@ -10,35 +18,46 @@ from .exceptions import (
     StorageException,
     SummaryException,
     TimeParseException,
-)
-from .health import (
+    check_job_consistency,
     check_system_health,
+    key_status_store,
     with_retry,
 )
-from .message import (
+from .message_processing import (
+    AvatarEnhancer,
+    avatar_enhancer,
     check_cooldown,
-    get_raw_group_msg_history,
+    check_message_count,
+    get_group_messages,
     process_message,
 )
-from .scheduler import (
+from .scheduler_tasks import (
     check_scheduler_status,
+    get_next_run_time_for_group,
     process_summary_queue,
+    remove_scheduler,
     scheduler_send_summary,
     set_scheduler,
+    stop_tasks,
+    summary_queue,
     task_processor_started,
     update_single_group_schedule,
     verify_processor_status,
 )
-from .summary import (
+from .summary_generation import (
+    generate_help_image,
     generate_image,
     messages_summary,
     send_summary,
 )
 
 __all__ = [
+    "AvatarEnhancer",
     "DatabaseException",
     "ErrorCode",
     "ImageGenerationException",
+    "KeyStatus",
+    "KeyStatusStore",
     "MessageFetchException",
     "MessageProcessException",
     "ModelException",
@@ -47,17 +66,30 @@ __all__ = [
     "StorageException",
     "SummaryException",
     "TimeParseException",
+    "avatar_enhancer",
+    "check_command_preconditions",
     "check_cooldown",
+    "check_job_consistency",
+    "check_message_count",
+    "check_scheduler_preconditions",
     "check_scheduler_status",
     "check_system_health",
+    "ensure_group",
+    "generate_help_image",
     "generate_image",
-    "get_raw_group_msg_history",
+    "get_group_messages",
+    "get_next_run_time_for_group",
+    "key_status_store",
     "messages_summary",
     "process_message",
     "process_summary_queue",
+    "remove_scheduler",
+    "require_plugin_enabled",
     "scheduler_send_summary",
     "send_summary",
     "set_scheduler",
+    "stop_tasks",
+    "summary_queue",
     "task_processor_started",
     "update_single_group_schedule",
     "verify_processor_status",

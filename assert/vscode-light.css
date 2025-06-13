@@ -316,3 +316,22 @@
 .markdown-body .markdown-alert.markdown-alert-tip {
   border-left-color: #267f99;
 }
+
+/* 用户头像样式 */
+.markdown-body .user-mention {
+  display: inline;
+}
+
+.markdown-body .user-avatar {
+  width: 1em;
+  height: 1em;
+  border-radius: 50%;
+  object-fit: cover;
+  vertical-align: text-bottom;
+  margin-right: 2px;
+  border: none;
+}
+
+.markdown-body .user-name {
+  color: #0969da;
+}

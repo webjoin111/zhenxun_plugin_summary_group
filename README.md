@@ -218,14 +218,9 @@ SUMMARY_DEFAULT_MODEL_NAME: DeepSeek/deepseek-chat
 
 # 其他配置项
 PROXY: http://127.0.0.1:7890  # 可选：网络代理
-TIME_OUT: 180  # API 请求超时时间（秒）
-MAX_RETRIES: 2  # API 请求失败时的最大重试次数
-RETRY_DELAY: 3  # API 请求重试前的基础延迟时间（秒）
 SUMMARY_MAX_LENGTH: 800  # 手动触发总结时，默认获取的最大消息数量
 SUMMARY_MIN_LENGTH: 30  # 触发总结所需的最少消息数量
 SUMMARY_COOL_DOWN: 30  # 用户手动触发总结的冷却时间（秒，0表示无冷却）
-SUMMARY_ADMIN_LEVEL: 10  # 设置/取消本群定时总结所需的最低管理员等级
-CONCURRENT_TASKS: 3  # 同时处理总结任务的最大数量
 summary_output_type: image  # 总结输出类型 (image 或 text)
 summary_fallback_enabled: true  # 当图片生成失败时是否自动回退到文本模式
 summary_theme: vscode_dark  # 总结图片输出的主题 (可选: light, dark, vscode_light, vscode_dark)

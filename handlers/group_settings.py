@@ -42,9 +42,7 @@ async def _check_perms(bot: Bot, event: GroupMessageEvent, target: MsgTarget) ->
             return False
 
         required_level = base_config.get("SUMMARY_ADMIN_LEVEL", 10)
-        is_admin = await LevelUser.check_level(
-            user_id_str, str(group_id), required_level
-        )
+        is_admin = await LevelUser.check_level(user_id_str, str(group_id), required_level)
         is_superuser = await SUPERUSER(bot, event)
 
         if not (is_admin or is_superuser):
@@ -78,32 +76,20 @@ async def handle_set_group_model(
 
     prov_name, mod_name = parse_provider_model_string(model_name_str)
     if not prov_name or not mod_name:
-        await UniMessage.text("模型名称格式错误，应为 'ProviderName/ModelName'。").send(
-            target
-        )
+        await UniMessage.text("模型名称格式错误，应为 'ProviderName/ModelName'。").send(target)
         return
 
     if find_model(prov_name, mod_name):
-        if await store.set_group_setting(
-            group_id_str, "default_model_name", model_name_str
-        ):
-            logger.info(
-                f"群 {group_id_str} 设置默认模型为: {model_name_str} by {event.get_user_id()}"
-            )
-            await UniMessage.text(f"已将本群默认总结模型设置为：{model_name_str}").send(
-                target
-            )
+        if await store.set_group_setting(group_id_str, "default_model_name", model_name_str):
+            logger.info(f"群 {group_id_str} 设置默认模型为: {model_name_str} by {event.get_user_id()}")
+            await UniMessage.text(f"已将本群默认总结模型设置为：{model_name_str}").send(target)
         else:
             await UniMessage.text("设置失败，请检查日志。").send(target)
     else:
-        await UniMessage.text(
-            f"错误：找不到模型 '{model_name_str}'，请检查名称是否正确。"
-        ).send(target)
+        await UniMessage.text(f"错误：找不到模型 '{model_name_str}'，请检查名称是否正确。").send(target)
 
 
-async def handle_set_group_style(
-    bot: Bot, event: GroupMessageEvent, target: MsgTarget, style: Match[str]
-):
+async def handle_set_group_style(bot: Bot, event: GroupMessageEvent, target: MsgTarget, style: Match[str]):
     """处理设置本群默认风格"""
     if not await _check_perms(bot, event, target):
         return
@@ -116,19 +102,13 @@ async def handle_set_group_style(
         return
 
     if await store.set_group_setting(group_id_str, "default_style", style_name):
-        logger.info(
-            f"群 {group_id_str} 设置默认风格为: '{style_name}' by {event.get_user_id()}"
-        )
-        await UniMessage.text(f"已将本群默认总结风格设置为：'{style_name}'").send(
-            target
-        )
+        logger.info(f"群 {group_id_str} 设置默认风格为: '{style_name}' by {event.get_user_id()}")
+        await UniMessage.text(f"已将本群默认总结风格设置为：'{style_name}'").send(target)
     else:
         await UniMessage.text("设置失败，请检查日志。").send(target)
 
 
-async def handle_remove_group_model(
-    bot: Bot, event: GroupMessageEvent, target: MsgTarget
-):
+async def handle_remove_group_model(bot: Bot, event: GroupMessageEvent, target: MsgTarget):
     """处理移除本群默认模型"""
     if not await _check_perms(bot, event, target):
         return
@@ -136,16 +116,12 @@ async def handle_remove_group_model(
     group_id_str = str(event.group_id)
     if await store.remove_group_setting(group_id_str, "default_model_name"):
         logger.info(f"群 {group_id_str} 移除了默认模型设置 by {event.get_user_id()}")
-        await UniMessage.text("已移除本群的默认总结模型设置，将使用全局设置。").send(
-            target
-        )
+        await UniMessage.text("已移除本群的默认总结模型设置，将使用全局设置。").send(target)
     else:
         await UniMessage.text("移除失败或本群未设置默认模型。").send(target)
 
 
-async def handle_remove_group_style(
-    bot: Bot, event: GroupMessageEvent, target: MsgTarget
-):
+async def handle_remove_group_style(bot: Bot, event: GroupMessageEvent, target: MsgTarget):
     """处理移除本群默认风格"""
     if not await _check_perms(bot, event, target):
         return
@@ -183,68 +159,44 @@ async def _check_group_status(bot: Bot, target: MsgTarget, group_id: str) -> boo
         return False
 
 
-async def _switch_global_model(
-    target: MsgTarget, provider_model_name: str, operator_id: str
-):
+async def _switch_global_model(target: MsgTarget, provider_model_name: str, operator_id: str):
     """内部函数：切换全局模型"""
     success, message = handle_switch_model(provider_model_name)
     if success:
-        Config.set_config(
-            "summary_group", "CURRENT_ACTIVE_MODEL_NAME", provider_model_name, True
-        )
+        Config.set_config("summary_group", "CURRENT_ACTIVE_MODEL_NAME", provider_model_name, True)
         logger.info(f"全局 AI 模型已切换为: {provider_model_name} by {operator_id}")
-        await UniMessage.text(f"已成功切换全局激活模型为: {provider_model_name}").send(
-            target
-        )
+        await UniMessage.text(f"已成功切换全局激活模型为: {provider_model_name}").send(target)
     else:
         await UniMessage.text(message).send(target)
 
 
-async def _set_group_model(
-    target: MsgTarget, group_id: str, model_name_str: str, operator_id: str
-):
+async def _set_group_model(target: MsgTarget, group_id: str, model_name_str: str, operator_id: str):
     """内部函数：设置分群模型"""
     prov_name, mod_name = parse_provider_model_string(model_name_str)
     if not prov_name or not mod_name:
-        await UniMessage.text("模型名称格式错误，应为 'ProviderName/ModelName'。").send(
-            target
-        )
+        await UniMessage.text("模型名称格式错误，应为 'ProviderName/ModelName'。").send(target)
         return
 
     if find_model(prov_name, mod_name):
-        if await store.set_group_setting(
-            group_id, "default_model_name", model_name_str
-        ):
-            logger.info(
-                f"群 {group_id} 设置默认模型为: {model_name_str} by {operator_id}"
-            )
-            await UniMessage.text(
-                f"已将群聊 {group_id} 的默认总结模型设置为：{model_name_str}"
-            ).send(target)
+        if await store.set_group_setting(group_id, "default_model_name", model_name_str):
+            logger.info(f"群 {group_id} 设置默认模型为: {model_name_str} by {operator_id}")
+            await UniMessage.text(f"已将群聊 {group_id} 的默认总结模型设置为：{model_name_str}").send(target)
         else:
             await UniMessage.text("设置失败，请检查日志。").send(target)
     else:
-        await UniMessage.text(
-            f"错误：找不到模型 '{model_name_str}'，请检查名称是否正确。"
-        ).send(target)
+        await UniMessage.text(f"错误：找不到模型 '{model_name_str}'，请检查名称是否正确。").send(target)
 
 
 async def _remove_group_model(target: MsgTarget, group_id: str, operator_id: str):
     """内部函数：移除分群模型设置"""
     if await store.remove_group_setting(group_id, "default_model_name"):
         logger.info(f"群 {group_id} 移除了默认模型设置 by {operator_id}")
-        await UniMessage.text(
-            f"已移除群聊 {group_id} 的默认总结模型设置，将使用全局设置。"
-        ).send(target)
+        await UniMessage.text(f"已移除群聊 {group_id} 的默认总结模型设置，将使用全局设置。").send(target)
     else:
-        await UniMessage.text(f"移除失败或群聊 {group_id} 未设置默认模型。").send(
-            target
-        )
+        await UniMessage.text(f"移除失败或群聊 {group_id} 未设置默认模型。").send(target)
 
 
-async def _set_group_style(
-    target: MsgTarget, group_id: str, style_name: str, operator_id: str
-):
+async def _set_group_style(target: MsgTarget, group_id: str, style_name: str, operator_id: str):
     """内部函数：设置分群风格"""
     style_name = style_name.strip()
     if not style_name:
@@ -253,9 +205,7 @@ async def _set_group_style(
 
     if await store.set_group_setting(group_id, "default_style", style_name):
         logger.info(f"群 {group_id} 设置默认风格为: '{style_name}' by {operator_id}")
-        await UniMessage.text(
-            f"已将群聊 {group_id} 的默认总结风格设置为：'{style_name}'"
-        ).send(target)
+        await UniMessage.text(f"已将群聊 {group_id} 的默认总结风格设置为：'{style_name}'").send(target)
     else:
         await UniMessage.text("设置失败，请检查日志。").send(target)
 
@@ -264,13 +214,9 @@ async def _remove_group_style(target: MsgTarget, group_id: str, operator_id: str
     """内部函数：移除分群风格设置"""
     if await store.remove_group_setting(group_id, "default_style"):
         logger.info(f"群 {group_id} 移除了默认风格设置 by {operator_id}")
-        await UniMessage.text(f"已移除群聊 {group_id} 的默认总结风格设置。").send(
-            target
-        )
+        await UniMessage.text(f"已移除群聊 {group_id} 的默认总结风格设置。").send(target)
     else:
-        await UniMessage.text(f"移除失败或群聊 {group_id} 未设置默认风格。").send(
-            target
-        )
+        await UniMessage.text(f"移除失败或群聊 {group_id} 未设置默认风格。").send(target)
 
 
 async def _show_settings(target: MsgTarget, group_id_to_show: str):
@@ -300,9 +246,7 @@ async def _show_settings(target: MsgTarget, group_id_to_show: str):
     await UniMessage.text(message.strip()).send(target)
 
 
-async def handle_show_group_settings(
-    bot: Bot, event: GroupMessageEvent, target: MsgTarget
-):
+async def handle_show_group_settings(bot: Bot, event: GroupMessageEvent, target: MsgTarget):
     """处理查看本群设置"""
     user_id_str = event.get_user_id()
     group_id_str = str(event.group_id)
@@ -340,9 +284,7 @@ async def handle_summary_config(
 ):
     """处理 '/总结配置' 命令"""
     user_id_str = event.get_user_id()
-    originating_group_id = (
-        event.group_id if isinstance(event, GroupMessageEvent) else None
-    )
+    originating_group_id = event.group_id if isinstance(event, GroupMessageEvent) else None
     is_superuser = await SUPERUSER(bot, event)
 
     arp: Arparma | None = cmd_result.result
@@ -375,50 +317,36 @@ async def handle_summary_config(
 
         elif arp.find("模型.切换"):
             if not is_superuser:
-                await UniMessage.text("只有超级用户才能切换全局使用的模型。").send(
-                    target
-                )
+                await UniMessage.text("只有超级用户才能切换全局使用的模型。").send(target)
                 return
             provider_model = arp.query[str]("模型.切换.provider_model")
             await _switch_global_model(target, provider_model, user_id_str)
 
         elif arp.find("模型.设置"):
             if not is_superuser:
-                await UniMessage.text("只有超级用户才能设置群组的默认模型。").send(
-                    target
-                )
+                await UniMessage.text("只有超级用户才能设置群组的默认模型。").send(target)
                 return
             if not target_group_id_str:
-                await UniMessage.text(
-                    "请在群内使用或使用 -g <群号> 指定要设置的群组。"
-                ).send(target)
+                await UniMessage.text("请在群内使用或使用 -g <群号> 指定要设置的群组。").send(target)
                 return
             if not await _check_group_status(bot, target, target_group_id_str):
                 return
             provider_model = arp.query[str]("模型.设置.provider_model")
-            await _set_group_model(
-                target, target_group_id_str, provider_model, user_id_str
-            )
+            await _set_group_model(target, target_group_id_str, provider_model, user_id_str)
 
         elif arp.find("模型.移除"):
             if not is_superuser:
-                await UniMessage.text("只有超级用户才能移除群组的默认模型设置。").send(
-                    target
-                )
+                await UniMessage.text("只有超级用户才能移除群组的默认模型设置。").send(target)
                 return
             if not target_group_id_str:
-                await UniMessage.text(
-                    "请在群内使用或使用 -g <群号> 指定要移除设置的群组。"
-                ).send(target)
+                await UniMessage.text("请在群内使用或使用 -g <群号> 指定要移除设置的群组。").send(target)
                 return
             if not await _check_group_status(bot, target, target_group_id_str):
                 return
             await _remove_group_model(target, target_group_id_str, user_id_str)
 
         else:
-            await UniMessage.text(
-                "模型操作无效，请使用 '列表', '切换', '设置', '移除'。"
-            ).send(target)
+            await UniMessage.text("模型操作无效，请使用 '列表', '切换', '设置', '移除'。").send(target)
 
     elif arp.find("风格"):
         can_proceed = False
@@ -426,9 +354,7 @@ async def handle_summary_config(
         if is_superuser:
             can_proceed = True
         elif originating_group_id and isinstance(event, GroupMessageEvent):
-            if await LevelUser.check_level(
-                user_id_str, str(originating_group_id), required_level
-            ):
+            if await LevelUser.check_level(user_id_str, str(originating_group_id), required_level):
                 can_proceed = True
 
         if not can_proceed:
@@ -436,9 +362,7 @@ async def handle_summary_config(
             return
 
         if not target_group_id_str:
-            await UniMessage.text(
-                "请在群内使用或使用 -g <群号> 指定要操作的群组。"
-            ).send(target)
+            await UniMessage.text("请在群内使用或使用 -g <群号> 指定要操作的群组。").send(target)
             return
         if not await _check_group_status(bot, target, target_group_id_str):
             return
@@ -453,9 +377,7 @@ async def handle_summary_config(
 
     elif arp.find("查看"):
         if not target_group_id_str:
-            await UniMessage.text(
-                "请在群内使用或使用 -g <群号> 指定要查看的群组。"
-            ).send(target)
+            await UniMessage.text("请在群内使用或使用 -g <群号> 指定要查看的群组。").send(target)
             return
         if not await _check_group_status(bot, target, target_group_id_str):
             return
@@ -467,8 +389,8 @@ async def handle_summary_config(
                 return
             await _show_settings(target, target_group_id_str)
         elif not originating_group_id:
-            await UniMessage.text(
-                "无效命令。请使用 '总结配置 查看/模型/风格...' 或在群聊中使用。"
-            ).send(target)
+            await UniMessage.text("无效命令。请使用 '总结配置 查看/模型/风格...' 或在群聊中使用。").send(
+                target
+            )
         else:
             await _show_settings(target, target_group_id_str)

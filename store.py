@@ -39,9 +39,7 @@ class Store:
 
         self._lock = asyncio.Lock()
 
-        self.schedule_data: dict[str, ScheduleData] = self._load_json_data(
-            self.schedule_file_path
-        )
+        self.schedule_data: dict[str, ScheduleData] = self._load_json_data(self.schedule_file_path)
         self.group_settings_data: dict[str, GroupSettingData] = self._load_json_data(
             self.group_settings_file_path
         )
@@ -156,9 +154,7 @@ class Store:
                 group_id_str = str(group_id)
                 if group_id_str in self.schedule_data:
                     del self.schedule_data[group_id_str]
-                    return self._save_json_data(
-                        self.schedule_data, self.schedule_file_path
-                    )
+                    return self._save_json_data(self.schedule_data, self.schedule_file_path)
                 return True
             except Exception as e:
                 logger.error(f"移除群 {group_id} 定时任务配置失败: {e}", e=e)
@@ -216,9 +212,7 @@ class Store:
             self.group_settings_data[group_id][key] = value
             self.group_settings_data[group_id]["updated_at"] = now_iso
 
-            result = self._save_json_data(
-                self.group_settings_data, self.group_settings_file_path
-            )
+            result = self._save_json_data(self.group_settings_data, self.group_settings_file_path)
             if result:
                 logger.debug(f"群 {group_id} 的设置项 '{key}' 已更新为: {value}")
             else:
@@ -227,10 +221,7 @@ class Store:
 
     async def remove_group_setting(self, group_id: str, key: str) -> bool:
         async with self._lock:
-            if (
-                group_id in self.group_settings_data
-                and key in self.group_settings_data[group_id]
-            ):
+            if group_id in self.group_settings_data and key in self.group_settings_data[group_id]:
                 old_value = self.group_settings_data[group_id].get(key)
                 del self.group_settings_data[group_id][key]
                 if not self.group_settings_data[group_id] or (
@@ -244,13 +235,9 @@ class Store:
                     now_iso = datetime.now().isoformat()
                     self.group_settings_data[group_id]["updated_at"] = now_iso
 
-                result = self._save_json_data(
-                    self.group_settings_data, self.group_settings_file_path
-                )
+                result = self._save_json_data(self.group_settings_data, self.group_settings_file_path)
                 if result:
-                    logger.debug(
-                        f"群 {group_id} 的设置项 '{key}' (原值: {old_value}) 已移除"
-                    )
+                    logger.debug(f"群 {group_id} 的设置项 '{key}' (原值: {old_value}) 已移除")
                 else:
                     logger.error(f"群 {group_id} 的设置项 '{key}' 移除失败")
                 return result

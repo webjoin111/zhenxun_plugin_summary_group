@@ -1,4 +1,3 @@
-# handlers/health.py
 import asyncio
 import traceback
 
@@ -7,19 +6,14 @@ from nonebot_plugin_alconna.uniseg import MsgTarget
 
 from zhenxun.services.log import logger
 
-from ..store import Store
-from ..utils.health import check_system_health
-from ..utils.scheduler import (
+from ..store import store
+from ..utils.core import check_job_consistency, check_system_health
+from ..utils.scheduler_tasks import (
     process_summary_queue,
 )
 
 
-async def handle_health_check(
-    bot: Bot,
-    event: GroupMessageEvent | PrivateMessageEvent,
-    target: MsgTarget
-):
-
+async def handle_health_check(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget):
     try:
         user_id = event.get_user_id()
         logger.debug(f"用户 {user_id} 触发了健康检查命令", command="健康检查", session=user_id)
@@ -40,10 +34,11 @@ async def handle_health_check(
         status_message += f"⏱️ 定时任务数量: {scheduler_status.get('jobs_count', 0)}\n"
 
         queue_status = health_result.get("task_queue", {})
-        status_message += f"📋 队列处理器: {'活跃' if queue_status.get('processor_active', False) else '停止'}\n"
+        status_message += (
+            f"📋 队列处理器: {'活跃' if queue_status.get('processor_active', False) else '停止'}\n"
+        )
         status_message += f"🔢 队列大小: {queue_status.get('queue_size', 0)}\n"
 
-        store = Store()
         group_count = len(store.get_all_groups())
         status_message += f"💾 已配置群组数: {group_count}\n"
 
@@ -74,11 +69,7 @@ async def handle_health_check(
         await bot.send(event, f"健康检查失败: {e!s}")
 
 
-async def handle_system_repair(
-    bot: Bot,
-    event: GroupMessageEvent | PrivateMessageEvent,
-    target: MsgTarget
-):
+async def handle_system_repair(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, target: MsgTarget):
     from nonebot_plugin_apscheduler import scheduler
 
     user_id = event.get_user_id()
@@ -87,16 +78,12 @@ async def handle_system_repair(
     await bot.send(event, "正在执行系统修复操作，请稍候...")
 
     try:
-
         repairs_applied = []
         errors = []
 
         try:
-
             all_tasks = asyncio.all_tasks()
-            processor_tasks = [
-                t for t in all_tasks if t.get_name() == "summary_queue_processor"
-            ]
+            processor_tasks = [t for t in all_tasks if t.get_name() == "summary_queue_processor"]
 
             for task in processor_tasks:
                 task.cancel()
@@ -107,8 +94,6 @@ async def handle_system_repair(
 
             queue_task = asyncio.create_task(process_summary_queue())
             queue_task.set_name("summary_queue_processor")
-            global task_processor_started
-            task_processor_started = True
 
             repairs_applied.append("队列处理器已重启")
             logger.debug("队列处理器已成功重启", command="系统修复", session=user_id)
@@ -125,8 +110,7 @@ async def handle_system_repair(
             logger.error(f"启动调度器时出错: {e}", command="系统修复", session=user_id, e=e)
 
         try:
-            store = Store()
-            cleaned_count = store.cleanup_invalid_groups()
+            cleaned_count = await store.cleanup_invalid_groups()
             if cleaned_count > 0:
                 repairs_applied.append(f"已清理 {cleaned_count} 个无效群组配置")
                 logger.debug(f"已清理 {cleaned_count} 个无效群组配置", command="系统修复", session=user_id)
@@ -135,38 +119,18 @@ async def handle_system_repair(
             logger.error(f"清理存储数据时出错: {e}", command="系统修复", session=user_id, e=e)
 
         try:
-
-            group_ids = store.get_all_groups()
-
-            scheduled_jobs = scheduler.get_jobs()
-            scheduled_job_ids = [
-                job.id for job in scheduled_jobs if job.id.startswith("summary_group_")
-            ]
-
-            missing_jobs = []
-            for group_id in group_ids:
-                job_id = f"summary_group_{group_id}"
-                if job_id not in scheduled_job_ids:
-                    missing_jobs.append(group_id)
-
-            orphaned_jobs = []
-            for job_id in scheduled_job_ids:
-                group_id = job_id.replace("summary_group_", "")
-                if group_id not in group_ids:
-                    orphaned_jobs.append(job_id)
+            missing_jobs, orphaned_jobs = check_job_consistency()
 
             if missing_jobs:
                 recreated_count = 0
                 for group_id_str in missing_jobs:
                     try:
-                        from ..utils.scheduler import update_single_group_schedule
+                        from ..utils.scheduler_tasks import update_single_group_schedule
 
                         group_id = int(group_id_str)
                         data = store.get(group_id)
                         if data:
-                            success, _ = await update_single_group_schedule(
-                                group_id, data
-                            )
+                            success, _ = await update_single_group_schedule(group_id, data)
                             if success:
                                 recreated_count += 1
                     except Exception as e:
@@ -174,15 +138,13 @@ async def handle_system_repair(
                             f"重建群 {group_id_str} 的定时任务失败: {e}",
                             command="系统修复",
                             session=user_id,
-                            e=e
+                            e=e,
                         )
 
                 if recreated_count > 0:
                     repairs_applied.append(f"已重建 {recreated_count} 个缺失的定时任务")
                     logger.debug(
-                        f"已重建 {recreated_count} 个缺失的定时任务",
-                        command="系统修复",
-                        session=user_id
+                        f"已重建 {recreated_count} 个缺失的定时任务", command="系统修复", session=user_id
                     )
 
             if orphaned_jobs:
@@ -193,18 +155,13 @@ async def handle_system_repair(
                         removed_count += 1
                     except Exception as e:
                         logger.error(
-                            f"移除孤立任务 {job_id} 失败: {e}",
-                            command="系统修复",
-                            session=user_id,
-                            e=e
+                            f"移除孤立任务 {job_id} 失败: {e}", command="系统修复", session=user_id, e=e
                         )
 
                 if removed_count > 0:
                     repairs_applied.append(f"已移除 {removed_count} 个孤立的定时任务")
                     logger.debug(
-                        f"已移除 {removed_count} 个孤立的定时任务",
-                        command="系统修复",
-                        session=user_id
+                        f"已移除 {removed_count} 个孤立的定时任务", command="系统修复", session=user_id
                     )
         except Exception as e:
             errors.append(f"修复任务调度问题失败: {e!s}")

@@ -399,3 +399,28 @@
     border-radius: 6px;
   }
 
+  /* 用户头像样式 */
+  .markdown-body .user-mention {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0;
+    margin: 0;
+    vertical-align: baseline;
+  }
+
+  .markdown-body .user-avatar {
+    width: 1em;
+    height: 1em;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    vertical-align: text-bottom;
+    margin-right: 2px;
+  }
+
+  .markdown-body .user-name {
+    font-weight: 500;
+    color: #0969da;
+  }
+

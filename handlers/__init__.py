@@ -1,11 +1,7 @@
-# handlers/__init__.py
-# 健康检查命令处理
 from .health import (
     handle_health_check,
     handle_system_repair,
 )
-
-# 定时任务命令处理
 from .scheduler import (
     check_scheduler_status_handler,
     handle_global_summary_remove,
