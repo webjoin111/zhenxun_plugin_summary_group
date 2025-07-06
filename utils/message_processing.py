@@ -644,13 +644,22 @@ class AvatarEnhancer:
                     logger.debug(f"跳过头像替换，特殊字符用户名: {user_name} (ID: {user_id})")
                     continue
 
+                # 优先处理 代码块包裹的用户名
+                code_pattern = rf"`{re.escape(user_name)}`"
                 if user_id in self.avatar_cache and self.avatar_cache[user_id] is not None:
                     avatar_html = self._create_user_with_avatar_html(user_name, self.avatar_cache[user_id])
-                    pattern = rf"\b{re.escape(user_name)}\b"
+                    enhanced_text = re.sub(code_pattern, f"{avatar_html}`{user_name}`", enhanced_text)
+                else:
+                    user_html = self._create_user_without_avatar_html(user_name)
+                    enhanced_text = re.sub(code_pattern, f"{user_html}`{user_name}`", enhanced_text)
+
+                # 再处理 非代码块包裹的用户名
+                pattern = rf"(?<!`)\\b{re.escape(user_name)}\\b(?!`)"
+                if user_id in self.avatar_cache and self.avatar_cache[user_id] is not None:
+                    avatar_html = self._create_user_with_avatar_html(user_name, self.avatar_cache[user_id])
                     enhanced_text = re.sub(pattern, avatar_html, enhanced_text)
                 else:
                     user_html = self._create_user_without_avatar_html(user_name)
-                    pattern = rf"\b{re.escape(user_name)}\b"
                     enhanced_text = re.sub(pattern, user_html, enhanced_text)
             except Exception as e:
                 logger.warning(f"处理用户 {user_name} 时出错: {e}")
