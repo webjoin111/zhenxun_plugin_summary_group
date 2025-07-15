@@ -6,23 +6,23 @@ base_config = Config.get("summary_group")
 class SummaryConfig:
     """群聊总结插件配置类"""
 
-    USER_INFO_TIMEOUT = 10  # 从数据库获取用户信息的超时时间
-    USER_INFO_BATCH_SIZE = 10  # 从数据库获取用户信息的批次大小
+    USER_INFO_TIMEOUT = 10
+    USER_INFO_BATCH_SIZE = 10
 
-    AVATAR_CACHE_SIZE = 100  # 头像缓存大小
-    AVATAR_MAX_COUNT = 50  # 单次处理的最大头像数量
-    AVATAR_CACHE_EXPIRE_DAYS = 7  # 头像缓存过期时间（天）
+    AVATAR_CACHE_SIZE = 100
+    AVATAR_MAX_COUNT = 50
+    AVATAR_CACHE_EXPIRE_DAYS = 7
 
-    MESSAGE_PROCESS_TIMEOUT = 60  # 消息处理超时时间
-    CONCURRENT_USER_FETCH_LIMIT = 3  # 并发用户信息获取限制
+    MESSAGE_PROCESS_TIMEOUT = 60
+    CONCURRENT_USER_FETCH_LIMIT = 3
 
-    USER_INFO_MAX_RETRIES = 2  # 用户信息最大重试次数
-    USER_INFO_RETRY_DELAY = 1.0  # 用户信息重试延迟时间
+    USER_INFO_MAX_RETRIES = 2
+    USER_INFO_RETRY_DELAY = 1.0
 
-    TIME_OUT = 120  # API请求超时时间
-    MAX_RETRIES = 3  # API请求最大重试次数
-    RETRY_DELAY = 2  # API请求重试延迟时间
-    CONCURRENT_TASKS = 2  # 同时处理总结任务的最大数量
+    TIME_OUT = 120
+    MAX_RETRIES = 3
+    RETRY_DELAY = 2
+    CONCURRENT_TASKS = 2
 
     @classmethod
     def get_user_info_timeout(cls) -> int:
