@@ -1,8 +1,6 @@
 from pathlib import Path
-import re
 
 import aiofiles
-from bs4 import BeautifulSoup
 import markdown
 from nonebot.adapters.onebot.v11 import Bot
 from nonebot_plugin_alconna.uniseg import MsgTarget, UniMessage
@@ -127,103 +125,6 @@ async def messages_summary(
         raise LLMException(f"总结生成失败: {e!s}") from e
 
 
-def _enhance_html_with_user_mentions(
-    html_content: str, user_info_cache: dict[str, str]
-) -> str:
-    try:
-        from .message_processing import avatar_enhancer
-
-        soup = BeautifulSoup(html_content, "lxml")
-        name_to_id = {name: uid for uid, name in user_info_cache.items()}
-        mentioned_users = avatar_enhancer._find_mentioned_users(
-            soup.get_text(), name_to_id
-        )
-
-        if not mentioned_users:
-            return str(soup)
-
-        sorted_user_names = sorted(mentioned_users.values(), key=len, reverse=True)
-        pattern = re.compile(
-            r"\b(" + "|".join(map(re.escape, sorted_user_names)) + r")\b"
-        )
-
-        def repl_func(match):
-            user_name = match.group(0)
-            if avatar_enhancer._should_skip_username(user_name):
-                return user_name
-            return avatar_enhancer._create_user_mention_html(user_name)
-
-        text_nodes = soup.find_all(string=True)
-        for node in text_nodes:
-            if node.parent.name in ["script", "style"]:
-                continue
-
-            original_text = str(node)
-            modified_text = pattern.sub(repl_func, original_text)
-
-            if modified_text != original_text:
-                new_soup = BeautifulSoup(modified_text, "lxml")
-                node.replace_with(*new_soup.contents)
-
-        return str(soup)
-    except Exception as e:
-        logger.warning(f"在HTML中增强用户名时失败，将返回原始HTML: {e}")
-        return html_content
-
-
-def _enhance_html_with_avatars(
-    html_content: str, user_info_cache: dict[str, str]
-) -> str:
-    try:
-        from .message_processing import avatar_enhancer
-
-        soup = BeautifulSoup(html_content, "lxml")
-        name_to_id = {name: uid for uid, name in user_info_cache.items()}
-        mentioned_users = avatar_enhancer._find_mentioned_users(
-            soup.get_text(), name_to_id
-        )
-
-        if not mentioned_users:
-            return str(soup)
-
-        sorted_user_names = sorted(mentioned_users.values(), key=len, reverse=True)
-        pattern = re.compile(
-            r"\b(" + "|".join(map(re.escape, sorted_user_names)) + r")\b"
-        )
-
-        def repl_func(match):
-            user_name = match.group(0)
-            user_id = name_to_id.get(user_name)
-
-            if not user_id or avatar_enhancer._should_skip_username(user_name):
-                return user_name
-
-            avatar_path = avatar_enhancer.avatar_cache.get(user_id)
-            if avatar_path and Path(avatar_path).exists():
-                return avatar_enhancer._create_user_with_avatar_html(
-                    user_name, avatar_path
-                )
-            else:
-                return avatar_enhancer._create_user_without_avatar_html(user_name)
-
-        text_nodes = soup.find_all(string=True)
-        for node in text_nodes:
-            if node.parent.name in ["script", "style"]:
-                continue
-
-            original_text = str(node)
-            modified_text = pattern.sub(repl_func, original_text)
-
-            if modified_text != original_text:
-                new_soup = BeautifulSoup(modified_text, "lxml")
-                node.replace_with(*new_soup.contents)
-
-        return str(soup)
-    except Exception as e:
-        logger.warning(f"在HTML中增强头像时失败，将返回原始HTML: {e}")
-        return html_content
-
-
 async def generate_image(
     summary: str, user_info_cache: dict[str, str] | None = None
 ) -> bytes:
@@ -245,20 +146,21 @@ async def generate_image(
 
         enhanced_html = html_from_md
         if user_info_cache:
+            from .message_processing import avatar_enhancer
+
             use_avatars = base_config.get("ENABLE_AVATAR_ENHANCEMENT", False)
+
+            await avatar_enhancer.enhance_summary_with_avatars(
+                summary, user_info_cache
+            )
+
             if not use_avatars:
-                enhanced_html = _enhance_html_with_user_mentions(
-                    html_from_md, user_info_cache
+                enhanced_html = avatar_enhancer.enhance_html_with_markup(
+                    html_from_md, user_info_cache, mode="mention"
                 )
             else:
-                from .message_processing import avatar_enhancer
-
-                await avatar_enhancer.enhance_summary_with_avatars(
-                    summary, user_info_cache
-                )
-
-                enhanced_html = _enhance_html_with_avatars(
-                    html_from_md, user_info_cache
+                enhanced_html = avatar_enhancer.enhance_html_with_markup(
+                    html_from_md, user_info_cache, mode="avatar"
                 )
         logger.debug(f"final_html: {enhanced_html}")
         css_file = "dark.css"

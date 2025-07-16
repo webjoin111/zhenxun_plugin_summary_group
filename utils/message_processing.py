@@ -417,59 +417,73 @@ class AvatarEnhancer:
 
     async def enhance_summary_with_avatars(
         self, summary_text: str, user_info_cache: dict[str, str]
-    ) -> str:
-        """在总结文本中为用户名添加头像或高亮"""
-
+    ) -> None:
+        """
+        在总结文本中为用户名添加头像或高亮。
+        此方法现在只负责准备数据（如下载头像），不再返回增强后的文本。
+        """
         try:
             name_to_id = {name: uid for uid, name in user_info_cache.items()}
             mentioned_users = self._find_mentioned_users(summary_text, name_to_id)
 
             if not mentioned_users:
-                logger.debug("总结中未发现提及的用户，跳过增强")
-                return summary_text
+                logger.debug("总结中未发现提及的用户，跳过头像下载。")
+                return
 
             use_avatars = base_config.get("ENABLE_AVATAR_ENHANCEMENT", False)
-            logger.debug(f"用户名增强模式: {'头像' if use_avatars else '高亮'}")
-
-            max_avatars = summary_config.get_avatar_max_count()
-            if len(mentioned_users) > max_avatars:
-                logger.info(
-                    f"提及用户数量 ({len(mentioned_users)}) 超过建议值 ({max_avatars})，继续处理所有用户"
-                )
-
             if use_avatars:
-                avatar_io_tasks = await self._fetch_avatars_to_files(mentioned_users)
+                max_avatars = summary_config.get_avatar_max_count()
+                if len(mentioned_users) > max_avatars:
+                    logger.info(
+                        f"提及用户数量 ({len(mentioned_users)}) 超过建议值 ({max_avatars})，继续处理所有用户"
+                    )
 
+                avatar_io_tasks = await self._fetch_avatars_to_files(mentioned_users)
                 if avatar_io_tasks:
                     logger.debug(f"等待 {len(avatar_io_tasks)} 个头像I/O任务完成...")
                     await asyncio.gather(*avatar_io_tasks, return_exceptions=True)
                     logger.debug("所有头像I/O任务已完成。")
 
-            enhanced_text = await self._insert_user_markup_in_text(
-                summary_text, mentioned_users
-            )
-
-            if len(enhanced_text) > 50000:
-                logger.warning(
-                    f"增强后的HTML过大 ({len(enhanced_text)} 字符)，返回原始文本"
-                )
-                return summary_text
-
-            return enhanced_text
-
         except Exception as e:
-            logger.warning(f"用户名增强失败，返回原始文本: {e}")
-            return summary_text
+            logger.warning(f"准备头像数据时失败: {e}")
+
+    def _get_all_valid_mentions(
+        self, text: str, name_to_id: dict[str, str]
+    ) -> list[tuple[re.Match, str, str]]:
+        """
+        [新增] 统一的核心用户识别函数。
+        使用强大的正则表达式和启发式规则，返回所有有效提及的详细信息。
+        返回: 列表，每个元素为 (匹配对象, 用户ID, 用户名)
+        """
+        valid_mentions: list[tuple[re.Match, str, str]] = []
+        all_user_names = sorted(name_to_id.keys(), key=len, reverse=True)
+        if not all_user_names:
+            return []
+
+        pattern = re.compile(
+            r"(?<!\w)(@?)(" + "|".join(map(re.escape, all_user_names)) + r")(?!\w)"
+        )
+
+        for match in pattern.finditer(text):
+            user_name = match.group(2)
+            user_id = name_to_id.get(user_name)
+
+            if user_id and self._is_likely_a_user_mention(match, text, user_name):
+                valid_mentions.append((match, user_id, user_name))
+
+        return valid_mentions
 
     def _find_mentioned_users(
         self, text: str, name_to_id: dict[str, str]
     ) -> dict[str, str]:
-        """查找文本中提及的用户"""
-        mentioned = {}
+        """
+        [重构] 查找文本中提及的用户。现在调用统一的核心识别函数。
+        """
+        mentioned: dict[str, str] = {}
+        valid_mentions = self._get_all_valid_mentions(text, name_to_id)
 
-        for user_name, user_id in name_to_id.items():
-            pattern = rf"\b{re.escape(user_name)}\b"
-            if re.search(pattern, text):
+        for _, user_id, user_name in valid_mentions:
+            if user_id not in mentioned:
                 mentioned[user_id] = user_name
                 logger.debug(f"发现提及用户: {user_name} (ID: {user_id})")
 
@@ -610,47 +624,6 @@ class AvatarEnhancer:
 
         return tasks
 
-    async def _insert_user_markup_in_text(
-        self, text: str, mentioned_users: dict[str, str]
-    ) -> str:
-        """在文本中插入头像或高亮标记"""
-        enhanced_text = text
-        use_avatars = base_config.get("ENABLE_AVATAR_ENHANCEMENT", False)
-
-        for user_id, user_name in mentioned_users.items():
-            try:
-                if self._should_skip_username(user_name):
-                    logger.debug(
-                        f"跳过头像替换，特殊字符用户名: {user_name} (ID: {user_id})"
-                    )
-                    continue
-
-                replacement_html = ""
-                if use_avatars:
-                    if (
-                        user_id in self.avatar_cache
-                        and self.avatar_cache[user_id] is not None
-                    ):
-                        replacement_html = self._create_user_with_avatar_html(
-                            user_name, self.avatar_cache[user_id]
-                        )
-                    else:
-                        replacement_html = self._create_user_without_avatar_html(
-                            user_name
-                        )
-                else:
-                    replacement_html = self._create_user_mention_html(user_name)
-
-                if replacement_html:
-                    pattern = rf"\b{re.escape(user_name)}\b"
-                    enhanced_text = re.sub(pattern, replacement_html, enhanced_text)
-
-            except Exception as e:
-                logger.warning(f"处理用户 {user_name} 时出错: {e}")
-                continue
-
-        return enhanced_text
-
     def _create_user_with_avatar_html(
         self, user_name: str, avatar_file_path: str
     ) -> str:
@@ -714,6 +687,93 @@ class AvatarEnhancer:
 
         except Exception as e:
             logger.warning(f"清理头像文件时出错: {e}")
+
+    def enhance_html_with_markup(
+        self,
+        html_content: str,
+        user_info_cache: dict[str, str],
+        mode: str,
+    ) -> str:
+        """[重构] 使用统一的核心识别函数来增强HTML"""
+        try:
+            from bs4 import BeautifulSoup
+
+            soup = BeautifulSoup(html_content, "lxml")
+            name_to_id = {name: uid for uid, name in user_info_cache.items()}
+
+            text_nodes = soup.find_all(string=True)
+
+            for node in text_nodes:
+                if node.parent.name in ["script", "style", "a"]:
+                    continue
+
+                original_text = str(node)
+
+                valid_mentions = self._get_all_valid_mentions(original_text, name_to_id)
+                if not valid_mentions:
+                    continue
+
+                new_parts = []
+                last_index = 0
+                for match, user_id, user_name in valid_mentions:
+                    new_parts.append(original_text[last_index : match.start()])
+
+                    replacement_html = ""
+                    if mode == "avatar":
+                        avatar_path = self.avatar_cache.get(user_id)
+                        if avatar_path and Path(avatar_path).exists():
+                            replacement_html = self._create_user_with_avatar_html(
+                                user_name, avatar_path
+                            )
+                        else:
+                            replacement_html = self._create_user_without_avatar_html(
+                                user_name
+                            )
+                    else:
+                        replacement_html = self._create_user_mention_html(user_name)
+
+                    new_parts.append(replacement_html)
+                    last_index = match.end()
+
+                new_parts.append(original_text[last_index:])
+
+                new_html_str = "".join(new_parts)
+                if new_html_str != original_text:
+                    new_soup = BeautifulSoup(new_html_str, "html.parser")
+                    node.replace_with(*new_soup.contents)
+
+            return str(soup)
+
+        except Exception as e:
+            logger.warning(f"在HTML中增强用户名时失败，将返回原始HTML: {e}", e=e)
+            return html_content
+
+    def _is_likely_a_user_mention(
+        self, match: re.Match, full_text: str, user_name: str
+    ) -> bool:
+        """
+        [重构] 更精细的启发式规则，用于判断一个匹配到的字符串是否真的是一个用户名。
+        """
+        if match.group(1) or (
+            match.end() < len(full_text) and full_text[match.end()] in (":", "：")
+        ):
+            return True
+
+        exclusion_patterns = [f"吃{user_name}", f"是{user_name}", f"的{user_name}"]
+        context_window = full_text[
+            max(0, match.start() - 2) : min(len(full_text), match.end() + 2)
+        ]
+        if any(p in context_window for p in exclusion_patterns):
+            logger.debug(f"跳过对 '{user_name}' 的替换，因为它出现在排除模式中。")
+            return False
+
+        if len(user_name) >= 4:
+            return True
+        if len(user_name) == 1:
+            logger.debug(f"跳过对单字符名称 '{user_name}' 的替换，风险太高。")
+            return False
+
+        return True
 
 
 avatar_enhancer = AvatarEnhancer()
