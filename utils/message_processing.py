@@ -18,6 +18,20 @@ from .. import base_config
 from ..config import summary_config
 from .core import ErrorCode, SummaryException
 
+
+def _truncate_username(username: str) -> str:
+    """如果用户名过长，则进行截断处理，保留前后部分。"""
+    max_len = summary_config.get_username_max_length()
+    if len(username) > max_len:
+        keep_len = (max_len - 3) // 2
+        if keep_len < 1:
+            keep_len = 1
+        truncated_name = f"{username[:keep_len]}...{username[-keep_len:]}"
+        logger.trace(f"用户名 '{username}' 过长，已截断为 '{truncated_name}'")
+        return truncated_name
+    return username
+
+
 _message_cache: dict[str, tuple[tuple[list, dict], float]] = {}
 
 
@@ -302,9 +316,9 @@ async def process_message(
                     fallback_name = f"用户_{user_id_str[-4:]}"
                     if user_data:
                         sender_name = user_data.card or user_data.name or fallback_name
-                        user_info_cache[user_id_str] = sender_name
+                        user_info_cache[user_id_str] = _truncate_username(sender_name)
                     else:
-                        user_info_cache[user_id_str] = fallback_name
+                        user_info_cache[user_id_str] = _truncate_username(fallback_name)
 
             logger.debug(
                 f"用户信息并发获取完成，缓存了 {len(user_info_cache)} 个用户信息",
@@ -321,7 +335,8 @@ async def process_message(
             if exclude_bot and user_id_str == bot_self_id:
                 continue
 
-            sender_name = user_info_cache.get(user_id_str, f"用户_{user_id_str[-4:]}")
+            default_name = _truncate_username(f"用户_{user_id_str[-4:]}")
+            sender_name = user_info_cache.get(user_id_str, default_name)
 
             raw_segments = msg.get("message", [])
             text_segments: list[str] = []
@@ -337,7 +352,8 @@ async def process_message(
                         text_segments.append(text)
                 elif seg_type == "at" and "qq" in seg_data:
                     qq = str(seg_data["qq"])
-                    at_name = user_info_cache.get(qq, f"用户_{qq[-4:]}")
+                    default_at_name = _truncate_username(f"用户_{qq[-4:]}")
+                    at_name = user_info_cache.get(qq, default_at_name)
                     text_segments.append(f"@{at_name}")
 
             if text_segments:

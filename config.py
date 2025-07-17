@@ -6,6 +6,9 @@ base_config = Config.get("summary_group")
 class SummaryConfig:
     """群聊总结插件配置类"""
 
+    USERNAME_MAX_LENGTH = 15
+    """新增配置项：用户名在总结中显示的最大长度，超过则会被截断。"""
+
     USER_INFO_TIMEOUT = 10
     USER_INFO_BATCH_SIZE = 10
 
@@ -23,6 +26,11 @@ class SummaryConfig:
     MAX_RETRIES = 3
     RETRY_DELAY = 2
     CONCURRENT_TASKS = 2
+
+    @classmethod
+    def get_username_max_length(cls) -> int:
+        """获取用户名截断前的最大长度"""
+        return getattr(cls, "USERNAME_MAX_LENGTH", 20)
 
     @classmethod
     def get_user_info_timeout(cls) -> int:
