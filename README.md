@@ -36,20 +36,20 @@ AI:
 
 本插件的配置项位于 `data/configs/config.yaml` 文件的 `summary_group` 模块下。首次加载时会自动生成默认配置。
 
-| 配置项                       | 类型    | 默认值                  | 说明                                                                                              |
-| ---------------------------- | ------- | ----------------------- | ------------------------------------------------------------------------------------------------- |
-| `SUMMARY_MODEL_NAME`         | `str`   | `Gemini/gemini-2.5-flash` | 本插件**全局默认**使用的 AI 模型，格式为 `ProviderName/ModelName`。会被分群配置覆盖。         |
-| `SUMMARY_DEFAULT_STYLE`      | `str`   | `null`                  | 本插件**全局默认**的总结风格。会被分群配置覆盖。                                                    |
-| `SUMMARY_MAX_LENGTH`         | `int`   | `1000`                  | 手动触发总结时，可获取的最大消息数量。                                                            |
-| `SUMMARY_MIN_LENGTH`         | `int`   | `50`                    | 触发总结所需的最少有效消息数量。                                                                  |
-| `SUMMARY_COOL_DOWN`          | `int`   | `60`                    | 用户手动触发总结的冷却时间（秒）。                                                                |
-| `summary_output_type`        | `str`   | `image`                 | 总结报告的输出格式，可选值为 `image` 或 `text`。                                                  |
-| `summary_fallback_enabled`   | `bool`  | `false`                 | 当图片生成失败时，是否自动降级为纯文本输出。                                                      |
-| `summary_theme`              | `str`   | `dark`                  | 总结图片的主题样式，可选值为 `dark`, `light`, `cyber`。                                          |
-| `ENABLE_AVATAR_ENHANCEMENT`  | `bool`  | `true`                 | 是否在图片报告中为用户名嵌入头像。**开启此项会增加图片生成时间和资源消耗。**                      |
-| `USE_DB_HISTORY`             | `bool`  | `false`                 | 是否优先从数据库 (`chat_history` 表) 获取聊天记录。可以提升速度，但可能丢失非文本信息。         |
-| `EXCLUDE_BOT_MESSAGES`       | `bool`  | `false`                 | 是否在总结时排除 Bot 自身发送的消息。                                                             |
-| `MESSAGE_CACHE_TTL_SECONDS`  | `int`   | `300`                   | 从 API 获取的消息列表的缓存时间（秒），`0` 表示禁用。                                             |
+| 配置项                      | 类型   | 默认值                    | 说明                                                                                    |
+| --------------------------- | ------ | ------------------------- | --------------------------------------------------------------------------------------- |
+| `SUMMARY_MODEL_NAME`        | `str`  | `Gemini/gemini-2.5-flash` | 本插件**全局默认**使用的 AI 模型，格式为 `ProviderName/ModelName`。会被分群配置覆盖。   |
+| `SUMMARY_DEFAULT_STYLE`     | `str`  | `null`                    | 本插件**全局默认**的总结风格。会被分群配置覆盖。                                        |
+| `SUMMARY_MAX_LENGTH`        | `int`  | `1000`                    | 手动触发总结时，可获取的最大消息数量。                                                  |
+| `SUMMARY_MIN_LENGTH`        | `int`  | `50`                      | 触发总结所需的最少有效消息数量。                                                        |
+| `SUMMARY_COOL_DOWN`         | `int`  | `60`                      | 用户手动触发总结的冷却时间（秒）。                                                      |
+| `summary_output_type`       | `str`  | `image`                   | 总结报告的输出格式，可选值为 `image` 或 `text`。                                        |
+| `summary_fallback_enabled`  | `bool` | `false`                   | 当图片生成失败时，是否自动降级为纯文本输出。                                            |
+| `summary_theme`             | `str`  | `dark`                    | 总结图片的主题样式，可选值为 `dark`, `light`, `cyber`。                                 |
+| `ENABLE_AVATAR_ENHANCEMENT` | `bool` | `true`                    | 是否在图片报告中为用户名嵌入头像。**开启此项会增加图片生成时间和资源消耗。**            |
+| `USE_DB_HISTORY`            | `bool` | `false`                   | 是否优先从数据库 (`chat_history` 表) 获取聊天记录。可以提升速度，但可能丢失非文本信息。 |
+| `EXCLUDE_BOT_MESSAGES`      | `bool` | `false`                   | 是否在总结时排除 Bot 自身发送的消息。                                                   |
+| `MESSAGE_CACHE_TTL_SECONDS` | `int`  | `300`                     | 从 API 获取的消息列表的缓存时间（秒），`0` 表示禁用。                                   |
 
 ## 📖 命令使用
 
@@ -127,6 +127,54 @@ AI:
 3.  **插件全局配置**: 使用 `总结模型` 和 `总结风格` 命令为**整个插件**设置的默认模型和风格。
 4.  **LLM 核心服务默认**: 如果以上均未配置，则使用 Zhenxun Bot 核心 LLM 服务的全局默认模型。
 
+## 📋 更新日志
+
+### [3.0.0] - 重大架构升级
+
+
+**🚨 破坏性变更**
+- 配置结构完全重构，旧版配置不兼容
+- 移除独立AI模型管理和系统维护命令
+- 命令语法更新，请参阅新版文档
+
+**🏗️ 核心重构**
+- 深度集成Zhenxun Bot核心服务（AI模型、定时任务、API管理）
+- 统一使用 `scheduler_manager` 和 `AI.PROVIDERS`
+- 集成密钥轮询和负载均衡机制
+
+**✨ 新增功能**
+- 🎨 三种图片主题：`dark` / `light` / `cyber`
+- 👤 用户头像嵌入和高亮显示
+- ⚡ 智能缓存机制，显著提升响应速度
+- ✂️ 用户名智能截断，优化显示效果
+
+## [2.2.0]
+- ✨ 新增用户头像显示功能（默认关闭，需配置启用）
+- ♻️ 配置管理重构，迁移至独立 `config.py` 文件
+- ♻️ 工具模块重构，优化代码结构和可维护性
+- ⚡️ 性能优化，改进用户信息获取和消息处理
+- 🐛 修复定时任务和异步处理相关问题
+
+## [2.1.0]
+- 🎨 新增主题配置支持
+- ✨ 智能API密钥轮换策略
+- 🚀 消息处理逻辑优化，支持并发获取用户信息
+- 🔍 新增从数据库读取聊天记录的配置选项
+- 🔄 模型配置迁移到AI模块
+
+## [2.0.0]
+- 🤖 多AI模型支持，支持模型切换和管理
+- 🔧 分群模型和风格配置功能
+- ♻️ 重构模型配置结构，使用 `AI.PROVIDERS` 管理
+- 👑 模型相关设置权限提升至超级用户级别
+- 🐛 修复多项功能和配置相关问题
+
+## [1.0.0]
+- 📝 基础群聊总结功能（指定数量、用户、关键词、风格）
+- ⏰ 定时总结功能
+- 🖼️ 图片和文本双输出模式
+- 🛡️ 权限控制和冷却时间限制
+
 ## 致谢
 
 特别感谢：
@@ -141,6 +189,3 @@ AI:
 本项目采用 MIT 许可证。详见 LICENSE 文件。
 
 原项目 [nonebot_plugin_summary_group](https://github.com/StillMisty/nonebot_plugin_summary_group) 采用 Apache-2.0 许可证。
-
----
-
