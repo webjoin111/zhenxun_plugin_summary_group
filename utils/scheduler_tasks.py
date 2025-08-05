@@ -1,9 +1,9 @@
-from nonebot import get_bot
+from nonebot.adapters.onebot.v11 import Bot
 from pydantic import BaseModel, Field
 
 from zhenxun.services.llm import LLMException
 from zhenxun.services.log import logger
-from zhenxun.services.scheduler import scheduler_manager
+from zhenxun.services.scheduler import ScheduleContext, scheduler_manager
 
 from .. import base_config
 from .core import SummaryException
@@ -25,22 +25,29 @@ class SummaryTaskParams(BaseModel):
     plugin_name="summary_group",
     params_model=SummaryTaskParams,
 )
-async def scheduled_summary_task(group_id: str, **kwargs) -> None:
+async def scheduled_summary_task(
+    bot: Bot,
+    context: ScheduleContext,
+    params: SummaryTaskParams,
+) -> None:
     """
-    这是由 scheduler_manager 调度的标准任务函数。
+    这是由 scheduler_manager 调度的、支持依赖注入的任务函数。
     它处理单个群组的总结任务。
     """
+    group_id = context.group_id
+    if not group_id:
+        logger.warning(
+            f"定时总结任务 (ID: {context.schedule_id}) 缺少 group_id，跳过执行。"
+        )
+        return
+
     task_id = f"summary_task_{group_id}"
     logger.info(f"开始执行定时总结任务 [{task_id}]", group_id=group_id)
 
     try:
-        least_message_count = kwargs.get(
-            "least_message_count", base_config.get("SUMMARY_MAX_LENGTH", 1000)
-        )
-        style = kwargs.get("style")
-        model = kwargs.get("model")
-
-        bot = get_bot()
+        least_message_count = params.least_message_count
+        style = params.style
+        model = params.model
 
         from .message_processing import get_group_messages
 
