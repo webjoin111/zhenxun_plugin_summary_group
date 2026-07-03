@@ -67,7 +67,7 @@ class SummaryException(Exception):
         """返回适合向用户展示的错误消息"""
         messages = {
             ErrorCode.PERMISSION_DENIED: "抱歉，你没有权限执行此操作。",
-            ErrorCode.MESSAGE_FETCH_FAILED: "获取群聊消息失败，请稍后再试或联系管理员。",
+            ErrorCode.MESSAGE_FETCH_FAILED: "获取群聊消息失败，请稍后再试或联系管理员",
             ErrorCode.MESSAGE_COUNT_INVALID: "请求的消息数量无效，请检查范围。",
             ErrorCode.MESSAGE_EMPTY: "未能获取到有效的聊天记录。",
             ErrorCode.MESSAGE_PROCESS_FAILED: "处理消息时发生内部错误。",

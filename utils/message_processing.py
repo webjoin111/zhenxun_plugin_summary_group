@@ -1,22 +1,24 @@
 import asyncio
-import os
 from pathlib import Path
 import re
 import time
 from typing import Any
 
-import aiofiles
 from nonebot.adapters.onebot.v11 import Bot
+from nonebot.adapters.onebot.v11.exception import ActionFailed, NetworkError
 
-from zhenxun.configs.path_config import TEMP_PATH
+from zhenxun.models.chat_history import ChatHistory
+from zhenxun.services.avatar_service import avatar_service
 from zhenxun.services.log import logger
 from zhenxun.utils.decorator.retry import Retry
 from zhenxun.utils.platform import PlatformUtils
-from zhenxun.utils.utils import get_user_avatar
+from zhenxun.utils.time_utils import TimeUtils
 
 from .. import base_config
 from ..config import summary_config
 from .core import ErrorCode, SummaryException
+
+_message_cache: dict[str, tuple[tuple[list, dict], float]] = {}
 
 
 def _truncate_username(username: str) -> str:
@@ -32,33 +34,24 @@ def _truncate_username(username: str) -> str:
     return username
 
 
-_message_cache: dict[str, tuple[tuple[list, dict], float]] = {}
-
-
-try:
-    from zhenxun.models.chat_history import ChatHistory
-except ImportError:
-    ChatHistory = None
-    logger.warning("无法导入 ChatHistory 模型，数据库历史记录功能不可用。")
-
-
 async def get_group_messages(
     bot: Bot,
     group_id: int,
-    count: int,
+    count: int | str,
     use_db: bool = False,
     target_user_ids: set[str] | None = None,
 ) -> tuple[list[dict], dict[str, str]]:
     """获取群聊消息，支持从数据库或API获取，可选用户过滤和消息处理"""
 
     cache_ttl = base_config.get("MESSAGE_CACHE_TTL_SECONDS", 300)
+    group_id_str = str(group_id)
+    cache_key: str | None = None
 
     if cache_ttl > 0 and not target_user_ids:
-        group_id_str = str(group_id)
-        cache_key = f"{group_id_str}:{count}"
+        cache_key = f"{group_id_str}:{count}" if isinstance(count, int) else None
         current_time = time.time()
 
-        if cache_key in _message_cache:
+        if cache_key and cache_key in _message_cache:
             cached_data, timestamp = _message_cache[cache_key]
             if current_time - timestamp < cache_ttl:
                 logger.debug(
@@ -69,116 +62,270 @@ async def get_group_messages(
 
                 return copy.deepcopy(cached_data)
 
-    group_id_str = str(group_id)
+    raw_messages: list = []
+    max_len = base_config.get("SUMMARY_MAX_LENGTH", 1000)
 
-    raw_messages = []
-
-    if use_db and ChatHistory:
+    if isinstance(count, str) and count == "当天":
         logger.debug(
-            f"尝试从数据库获取群 {group_id} 的最近 {count} 条聊天记录", command="DB历史"
+            f"进入当天总结模式，最大消息数: {max_len}", command="get_group_messages"
         )
-        try:
-            db_messages = (
-                await ChatHistory.filter(group_id=group_id_str)
-                .order_by("-create_time")
-                .limit(count)
-                .all()
-            )
+        today_start = TimeUtils.get_day_start()
 
-            if not db_messages:
-                logger.warning(
-                    f"数据库中未找到群 {group_id} 的聊天记录",
+        if use_db and ChatHistory:
+            try:
+                total_today_count = await ChatHistory.filter(
+                    group_id=group_id_str, create_time__gte=today_start
+                ).count()
+                logger.info(
+                    f"群聊 {group_id} 今日总消息数: {total_today_count}",
+                    command="DB历史",
+                )
+                logger.debug(
+                    f"尝试从数据库获取群 {group_id} 从 {today_start} 开始的最近 {max_len} 条记录",
+                    command="DB历史",
+                )
+                db_messages = (
+                    await ChatHistory.filter(
+                        group_id=group_id_str, create_time__gte=today_start
+                    )
+                    .order_by("-create_time")
+                    .limit(max_len)
+                    .all()
+                )
+
+                if not db_messages:
+                    logger.warning(
+                        f"数据库中未找到群 {group_id} 今天的聊天记录",
+                        command="DB历史",
+                        group_id=group_id,
+                    )
+                    return [], {}
+
+                formatted_messages: list[dict] = []
+                for msg in reversed(db_messages):
+                    formatted_messages.append(
+                        {
+                            "message_id": msg.id,
+                            "user_id": int(msg.user_id) if msg.user_id.isdigit() else 0,
+                            "time": int(msg.create_time.timestamp()),
+                            "message_type": "group",
+                            "message": [
+                                {
+                                    "type": "text",
+                                    "data": {"text": msg.plain_text or ""},
+                                }
+                            ],
+                            "raw_message": msg.plain_text or "",
+                            "sender": {
+                                "user_id": int(msg.user_id)
+                                if msg.user_id.isdigit()
+                                else 0
+                            },
+                        }
+                    )
+                logger.debug(
+                    f"从数据库成功获取并格式化 {len(formatted_messages)} 条消息 "
+                    f"(使用 plain_text)",
                     command="DB历史",
                     group_id=group_id,
                 )
-                return [], {}
-
-            formatted_messages = []
-            for msg in reversed(db_messages):
-                formatted_messages.append(
-                    {
-                        "message_id": msg.id,
-                        "user_id": int(msg.user_id) if msg.user_id.isdigit() else 0,
-                        "time": int(msg.create_time.timestamp()),
-                        "message_type": "group",
-                        "message": [
-                            {
-                                "type": "text",
-                                "data": {"text": msg.plain_text or ""},
-                            }
-                        ],
-                        "raw_message": msg.plain_text or "",
-                        "sender": {
-                            "user_id": int(msg.user_id) if msg.user_id.isdigit() else 0
-                        },
-                    }
+                logger.warning(
+                    "使用数据库历史记录时，图片、@ 等非文本信息可能无法正确处理。",
+                    command="DB历史",
                 )
+                raw_messages = formatted_messages
+            except Exception as e:
+                logger.error(
+                    f"从数据库获取群 {group_id} 的原始消息历史失败: {e}",
+                    command="DB历史",
+                    group_id=group_id,
+                    e=e,
+                )
+                ex = SummaryException(
+                    message=f"数据库历史记录获取失败: {e!s}",
+                    code=ErrorCode.DB_QUERY_ERROR,
+                    details={"error": str(e), "group_id": group_id, "count": count},
+                    cause=e,
+                )
+                raise ex from e
+        else:
+            if use_db and not ChatHistory:
+                logger.warning(
+                    "配置了使用数据库历史但 ChatHistory 模型导入失败，回退到 API 获取。"
+                )
+
             logger.debug(
-                f"从数据库成功获取并格式化 {len(formatted_messages)} 条消息 (使用 plain_text)",
-                command="DB历史",
-                group_id=group_id,
+                f"通过 API 获取群 {group_id} 的最近 {max_len} 条聊天记录用于当天总结",
+                command="API历史",
             )
-            logger.warning(
-                "使用数据库历史记录时，图片、@ 等非文本信息可能无法正确处理。",
-                command="DB历史",
-            )
-            raw_messages = formatted_messages
-        except Exception as e:
-            logger.error(
-                f"从数据库获取群 {group_id} 历史记录失败: {e}",
-                command="DB历史",
-                group_id=group_id,
-                e=e,
-            )
-            ex = SummaryException(
-                message=f"数据库历史记录获取失败: {e!s}",
-                code=ErrorCode.DB_QUERY_ERROR,
-                details={"error": str(e), "group_id": group_id, "count": count},
-                cause=e,
-            )
-            raise ex from e
-    else:
-        if use_db and not ChatHistory:
-            logger.warning(
-                "配置了使用数据库历史但 ChatHistory 模型导入失败，回退到 API 获取。"
-            )
+            try:
 
-        logger.debug(
-            f"通过 API 获取群 {group_id} 的最近 {count} 条聊天记录", command="API历史"
-        )
-        try:
-
-            @Retry.simple(
-                stop_max_attempt=summary_config.get_max_retries(),
-                wait_fixed_seconds=summary_config.get_retry_delay(),
-            )
-            async def fetch_with_retry():
-                response = await bot.get_group_msg_history(
-                    group_id=group_id, count=count
+                @Retry.simple(
+                    stop_max_attempt=summary_config.get_max_retries(),
+                    wait_fixed_seconds=summary_config.get_retry_delay(),
+                    exception=(NetworkError, ActionFailed),
                 )
-                raw_messages = response.get("messages", [])
-                logger.debug(
-                    f"从群 {group_id} API 获取了 {len(raw_messages)} 条原始消息",
+                async def fetch_with_retry():
+                    response = await bot.get_group_msg_history(
+                        group_id=group_id, count=max_len
+                    )
+                    raw = response.get("messages", [])
+                    logger.debug(
+                        f"从群 {group_id} API 获取了 {len(raw)} 条原始消息",
+                        command="API历史",
+                        group_id=group_id,
+                    )
+                    return raw
+
+                all_raw_messages = await fetch_with_retry()
+            except Exception as e:
+                logger.error(
+                    f"通过 API 获取群 {group_id} 的原始消息历史失败 (所有重试后): {e}",
                     command="API历史",
                     group_id=group_id,
+                    e=e,
                 )
-                return raw_messages
+                ex = SummaryException(
+                    message=f"API 消息历史获取失败: {e!s}",
+                    code=ErrorCode.MESSAGE_FETCH_FAILED,
+                    details={"error": str(e), "group_id": group_id, "count": count},
+                    cause=e,
+                )
+                raise ex from e
 
-            raw_messages = await fetch_with_retry()
-        except Exception as e:
-            logger.error(
-                f"通过 API 获取群 {group_id} 的原始消息历史失败 (所有重试后): {e}",
+            today_start_ts = int(today_start.timestamp())
+            raw_messages = [
+                msg for msg in all_raw_messages if msg.get("time", 0) >= today_start_ts
+            ]
+            logger.info(
+                f"API模式当天总结: 获取 {len(all_raw_messages)} 条消息, "
+                f"筛选后剩余 {len(raw_messages)} 条今日消息",
                 command="API历史",
+            )
+    else:
+        if not isinstance(count, int):
+            logger.error(
+                f"收到无法处理的消息数量参数: {count}",
+                command="get_group_messages",
                 group_id=group_id,
-                e=e,
             )
-            ex = SummaryException(
-                message=f"API 消息历史获取失败: {e!s}",
-                code=ErrorCode.MESSAGE_FETCH_FAILED,
-                details={"error": str(e), "group_id": group_id, "count": count},
-                cause=e,
+            raise SummaryException(
+                message="消息数量参数无效，请提供整数或'当天'。",
+                code=ErrorCode.INVALID_PARAMETER,
+                details={"group_id": group_id, "count": count},
             )
-            raise ex from e
+
+        if use_db and ChatHistory:
+            logger.debug(
+                f"尝试从数据库获取群 {group_id} 的最近 {count} 条聊天记录",
+                command="DB历史",
+            )
+            try:
+                db_messages = (
+                    await ChatHistory.filter(group_id=group_id_str)
+                    .order_by("-create_time")
+                    .limit(count)
+                    .all()
+                )
+
+                if not db_messages:
+                    logger.warning(
+                        f"数据库中未找到群 {group_id} 的聊天记录",
+                        command="DB历史",
+                        group_id=group_id,
+                    )
+                    return [], {}
+
+                formatted_messages = []
+                for msg in reversed(db_messages):
+                    formatted_messages.append(
+                        {
+                            "message_id": msg.id,
+                            "user_id": int(msg.user_id) if msg.user_id.isdigit() else 0,
+                            "time": int(msg.create_time.timestamp()),
+                            "message_type": "group",
+                            "message": [
+                                {
+                                    "type": "text",
+                                    "data": {"text": msg.plain_text or ""},
+                                }
+                            ],
+                            "raw_message": msg.plain_text or "",
+                            "sender": {
+                                "user_id": int(msg.user_id)
+                                if msg.user_id.isdigit()
+                                else 0
+                            },
+                        }
+                    )
+                logger.debug(
+                    f"从数据库成功获取并格式化 {len(formatted_messages)} 条消息 "
+                    f"(使用 plain_text)",
+                    command="DB历史",
+                    group_id=group_id,
+                )
+                logger.warning(
+                    "使用数据库历史记录时，图片、@ 等非文本信息可能无法正确处理。",
+                    command="DB历史",
+                )
+                raw_messages = formatted_messages
+            except Exception as e:
+                logger.error(
+                    f"从数据库获取群 {group_id} 历史记录失败: {e}",
+                    command="DB历史",
+                    group_id=group_id,
+                    e=e,
+                )
+                ex = SummaryException(
+                    message=f"数据库历史记录获取失败: {e!s}",
+                    code=ErrorCode.DB_QUERY_ERROR,
+                    details={"error": str(e), "group_id": group_id, "count": count},
+                    cause=e,
+                )
+                raise ex from e
+        else:
+            if use_db and not ChatHistory:
+                logger.warning(
+                    "配置了使用数据库历史但 ChatHistory 模型导入失败，回退到 API 获取。"
+                )
+
+            logger.debug(
+                f"通过 API 获取群 {group_id} 的最近 {count} 条聊天记录",
+                command="API历史",
+            )
+            try:
+
+                @Retry.simple(
+                    stop_max_attempt=summary_config.get_max_retries(),
+                    wait_fixed_seconds=summary_config.get_retry_delay(),
+                )
+                async def fetch_with_retry():
+                    response = await bot.get_group_msg_history(
+                        group_id=group_id, count=count
+                    )
+                    raw = response.get("messages", [])
+                    logger.debug(
+                        f"从群 {group_id} API 获取了 {len(raw)} 条原始消息",
+                        command="API历史",
+                        group_id=group_id,
+                    )
+                    return raw
+
+                raw_messages = await fetch_with_retry()
+            except Exception as e:
+                logger.error(
+                    f"通过 API 获取群 {group_id} 的原始消息历史失败 (所有重试后): {e}",
+                    command="API历史",
+                    group_id=group_id,
+                    e=e,
+                )
+                ex = SummaryException(
+                    message=f"API 消息历史获取失败: {e!s}",
+                    code=ErrorCode.MESSAGE_FETCH_FAILED,
+                    details={"error": str(e), "group_id": group_id, "count": count},
+                    cause=e,
+                )
+                raise ex from e
 
     filtered_messages = raw_messages
     if target_user_ids:
@@ -193,7 +340,8 @@ async def get_group_messages(
 
     if not filtered_messages:
         logger.warning(
-            f"群 {group_id} 未返回任何有效消息{'（指定用户）' if target_user_ids else ''}",
+            f"群 {group_id} 未返回任何有效消息"
+            f"{'（指定用户）' if target_user_ids else ''}",
             command="get_group_messages",
             group_id=group_id,
         )
@@ -204,7 +352,7 @@ async def get_group_messages(
             filtered_messages, bot, group_id
         )
 
-        if cache_ttl > 0 and not target_user_ids:
+        if cache_ttl > 0 and not target_user_ids and cache_key:
             _message_cache[cache_key] = (
                 (processed_data, user_info_cache),
                 time.time(),
@@ -276,7 +424,8 @@ async def process_message(
 
         if user_ids_to_fetch:
             logger.debug(
-                f"需要获取 {len(user_ids_to_fetch)} 个用户的信息: {sorted(user_ids_to_fetch)}",
+                f"需要获取 {len(user_ids_to_fetch)} 个用户的信息: "
+                f"{sorted(user_ids_to_fetch)}",
                 group_id=group_id,
             )
 
@@ -361,7 +510,8 @@ async def process_message(
                 processed_log.append({"name": sender_name, "content": message_content})
 
         logger.debug(
-            f"消息处理完成，生成 {len(processed_log)} 条处理记录 (已应用Bot排除设置: {exclude_bot})",
+            f"消息处理完成，生成 {len(processed_log)} 条处理记录 "
+            f"(已应用Bot排除设置: {exclude_bot})",
             group_id=group_id,
         )
         return processed_log, user_info_cache
@@ -422,43 +572,35 @@ class AvatarEnhancer:
 
     def __init__(self):
         self.avatar_cache: dict[str, str | None] = {}
-        self.avatar_dir = TEMP_PATH / "summary_group" / "avatar"
-        self.avatar_dir.mkdir(parents=True, exist_ok=True)
-        logger.debug(f"头像缓存目录: {self.avatar_dir}")
-
-        try:
-            self.clear_avatar_files()
-        except Exception as e:
-            logger.warning(f"启动时清理过期头像文件失败: {e}")
 
     async def enhance_summary_with_avatars(
         self, summary_text: str, user_info_cache: dict[str, str]
     ) -> None:
         """
         在总结文本中为用户名添加头像或高亮。
-        此方法现在只负责准备数据（如下载头像），不再返回增强后的文本。
+        此方法现在只负责准备头像数据，不再返回增强后的文本。
         """
         try:
             name_to_id = {name: uid for uid, name in user_info_cache.items()}
             mentioned_users = self._find_mentioned_users(summary_text, name_to_id)
 
             if not mentioned_users:
-                logger.debug("总结中未发现提及的用户，跳过头像下载。")
+                logger.debug("总结中未发现提及的用户，跳过头像数据准备。")
                 return
 
-            use_avatars = base_config.get("ENABLE_AVATAR_ENHANCEMENT", False)
-            if use_avatars:
-                max_avatars = summary_config.get_avatar_max_count()
-                if len(mentioned_users) > max_avatars:
-                    logger.info(
-                        f"提及用户数量 ({len(mentioned_users)}) 超过建议值 ({max_avatars})，继续处理所有用户"
-                    )
+            use_avatars = base_config.get("ENABLE_AVATAR_ENHANCEMENT", True)
+            if not use_avatars:
+                return
 
-                avatar_io_tasks = await self._fetch_avatars_to_files(mentioned_users)
-                if avatar_io_tasks:
-                    logger.debug(f"等待 {len(avatar_io_tasks)} 个头像I/O任务完成...")
-                    await asyncio.gather(*avatar_io_tasks, return_exceptions=True)
-                    logger.debug("所有头像I/O任务已完成。")
+            async def _get_and_cache(uid: str):
+                path = await avatar_service.get_avatar_path(
+                    platform="qq", identifier=uid
+                )
+                self.avatar_cache[uid] = str(path) if path else None
+
+            tasks = [_get_and_cache(uid) for uid in mentioned_users]
+            await asyncio.gather(*tasks, return_exceptions=True)
+            logger.debug(f"头像数据准备完成，共处理 {len(mentioned_users)} 个用户。")
 
         except Exception as e:
             logger.warning(f"准备头像数据时失败: {e}")
@@ -514,132 +656,6 @@ class AvatarEnhancer:
 
         return False
 
-    def _is_avatar_expired(self, avatar_path: Path) -> bool:
-        """检查头像文件是否已过期"""
-        try:
-            import time
-
-            from ..config import summary_config
-
-            expire_days = summary_config.get_avatar_cache_expire_days()
-            current_time = time.time()
-            cutoff_time = current_time - (expire_days * 24 * 60 * 60)
-
-            return avatar_path.stat().st_mtime < cutoff_time
-        except Exception as e:
-            logger.warning(f"检查头像文件过期状态时出错: {e}")
-            return False
-
-    @Retry.download(
-        stop_max_attempt=3,
-        log_name="获取用户头像",
-        return_on_failure=None,
-    )
-    async def _fetch_avatar_with_retry(self, user_id: str) -> str | None:
-        """带重试机制的头像获取并保存到本地文件 (增加强制同步)"""
-        avatar_file = self.avatar_dir / f"{user_id}.jpg"
-
-        if avatar_file.exists():
-            if self._is_avatar_expired(avatar_file):
-                logger.debug(
-                    f"用户 {user_id} 头像文件已过期，将重新获取: {avatar_file}"
-                )
-                try:
-                    avatar_file.unlink()
-                except Exception as e:
-                    logger.warning(f"删除过期头像文件失败: {e}")
-            else:
-                logger.debug(f"用户 {user_id} 头像文件已存在且未过期: {avatar_file}")
-                return str(avatar_file)
-
-        avatar_bytes = await get_user_avatar(user_id)
-        if avatar_bytes:
-            async with aiofiles.open(avatar_file, "wb") as f:
-                await f.write(avatar_bytes)
-                await f.flush()
-                try:
-                    os.fsync(f.fileno())
-                except OSError as e:
-                    logger.warning(
-                        f"os.fsync for {avatar_file} failed: {e}. "
-                        f"The flush() should be sufficient in most cases."
-                    )
-            logger.debug(f"成功保存并同步了用户 {user_id} 的头像到 {avatar_file}")
-            return str(avatar_file)
-
-        logger.debug(f"用户 {user_id} 头像获取失败")
-        return None
-
-    async def _fetch_avatars_to_files(
-        self, mentioned_users: dict[str, str]
-    ) -> list[asyncio.Task]:
-        """
-        并发批量获取用户头像并保存到本地文件。
-        【修改】: 此方法现在返回一个包含所有文件写入任务的列表。
-        """
-        users_to_fetch = {}
-
-        for user_id, user_name in mentioned_users.items():
-            need_fetch = False
-
-            if user_id not in self.avatar_cache:
-                need_fetch = True
-                logger.debug(f"用户 {user_id} 不在缓存中，需要获取")
-            elif self.avatar_cache[user_id] is None:
-                need_fetch = True
-                logger.debug(f"用户 {user_id} 缓存为 None，需要重新获取")
-            else:
-                avatar_path = Path(self.avatar_cache[user_id])
-                if not avatar_path.exists():
-                    need_fetch = True
-                    logger.debug(
-                        f"用户 {user_id} 缓存的文件不存在，需要重新获取: {avatar_path}"
-                    )
-                else:
-                    if self._is_avatar_expired(avatar_path):
-                        need_fetch = True
-                        logger.debug(
-                            f"用户 {user_id} 头像文件已过期，需要重新获取: {avatar_path}"
-                        )
-                    else:
-                        logger.debug(
-                            f"用户 {user_id} 头像文件已存在且未过期: {avatar_path}"
-                        )
-
-            if need_fetch:
-                users_to_fetch[user_id] = user_name
-
-        if not users_to_fetch:
-            logger.debug("所有用户头像都已缓存且文件存在，跳过获取")
-            return []
-
-        logger.debug(
-            f"开始创建 {len(users_to_fetch)} 个用户的头像获取任务: {list(users_to_fetch.keys())}"
-        )
-
-        max_concurrent = min(5, len(users_to_fetch))
-        semaphore = asyncio.Semaphore(max_concurrent)
-
-        async def fetch_and_cache_avatar(user_id: str):
-            async with semaphore:
-                try:
-                    avatar_path = await self._fetch_avatar_with_retry(user_id)
-                    self.avatar_cache[user_id] = avatar_path
-                    if avatar_path:
-                        logger.debug(f"任务成功: 用户 {user_id} -> {avatar_path}")
-                    else:
-                        logger.debug(f"任务失败: 用户 {user_id} -> None")
-                except Exception as e:
-                    logger.warning(f"获取用户 {user_id} 头像的任务中发生异常: {e}")
-                    self.avatar_cache[user_id] = None
-
-        tasks = [
-            asyncio.create_task(fetch_and_cache_avatar(user_id))
-            for user_id in users_to_fetch.keys()
-        ]
-
-        return tasks
-
     def _create_user_with_avatar_html(
         self, user_name: str, avatar_file_path: str
     ) -> str:
@@ -675,35 +691,6 @@ class AvatarEnhancer:
         self.avatar_cache.clear()
         logger.debug("头像缓存已清空")
 
-    def clear_avatar_files(self, keep_recent_days: int | None = None):
-        """清理头像文件"""
-        try:
-            import time
-
-            from ..config import summary_config
-
-            if keep_recent_days is None:
-                keep_recent_days = summary_config.get_avatar_cache_expire_days()
-
-            current_time = time.time()
-            cutoff_time = current_time - (keep_recent_days * 24 * 60 * 60)
-
-            deleted_count = 0
-            for avatar_file in self.avatar_dir.glob("*.jpg"):
-                if avatar_file.stat().st_mtime < cutoff_time:
-                    avatar_file.unlink()
-                    deleted_count += 1
-                    user_id = avatar_file.stem
-                    if user_id in self.avatar_cache:
-                        del self.avatar_cache[user_id]
-
-            logger.debug(
-                f"清理了 {deleted_count} 个过期头像文件 (保留 {keep_recent_days} 天)"
-            )
-
-        except Exception as e:
-            logger.warning(f"清理头像文件时出错: {e}")
-
     def enhance_html_with_markup(
         self,
         html_content: str,
@@ -720,7 +707,7 @@ class AvatarEnhancer:
             text_nodes = soup.find_all(string=True)
 
             for node in text_nodes:
-                if node.parent.name in ["script", "style", "a"]:
+                if node.parent and node.parent.name in ["script", "style", "a"]:
                     continue
 
                 original_text = str(node)

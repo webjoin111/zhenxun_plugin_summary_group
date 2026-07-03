@@ -1,3 +1,5 @@
+from pydantic import BaseModel, Field
+
 from zhenxun.configs.config import Config
 
 base_config = Config.get("summary_group")
@@ -20,11 +22,11 @@ class SummaryConfig:
     CONCURRENT_USER_FETCH_LIMIT = 3
 
     USER_INFO_MAX_RETRIES = 2
-    USER_INFO_RETRY_DELAY = 1.0
+    USER_INFO_RETRY_DELAY = 1
 
     TIME_OUT = 120
     MAX_RETRIES = 3
-    RETRY_DELAY = 2
+    RETRY_DELAY = 10
     CONCURRENT_TASKS = 2
 
     @classmethod
@@ -58,9 +60,9 @@ class SummaryConfig:
         return getattr(cls, "USER_INFO_MAX_RETRIES", 1)
 
     @classmethod
-    def get_user_info_retry_delay(cls) -> float:
+    def get_user_info_retry_delay(cls) -> int:
         """获取用户信息重试延迟"""
-        return getattr(cls, "USER_INFO_RETRY_DELAY", 0.5)
+        return getattr(cls, "USER_INFO_RETRY_DELAY", 1)
 
     @classmethod
     def get_avatar_cache_size(cls) -> int:
@@ -96,6 +98,15 @@ class SummaryConfig:
     def get_concurrent_tasks(cls) -> int:
         """获取同时处理总结任务的最大数量"""
         return getattr(cls, "CONCURRENT_TASKS", 2)
+
+
+class GroupSettings(BaseModel):
+    """群聊总结插件的分群配置模型"""
+
+    default_model_name: str | None = Field(
+        None, description="该群组默认使用的AI模型 (格式: Provider/Model)"
+    )
+    default_style: str | None = Field(None, description="该群组默认的总结风格")
 
 
 summary_config = SummaryConfig()

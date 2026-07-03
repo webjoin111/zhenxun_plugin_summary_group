@@ -1,56 +1,37 @@
-from pathlib import Path
-
-import aiofiles
-import markdown
 from nonebot.adapters.onebot.v11 import Bot
-from nonebot_plugin_alconna.uniseg import MsgTarget, UniMessage
+from nonebot_plugin_alconna.uniseg import Target, UniMessage
 
-from zhenxun.services.llm import (
-    LLMException,
-    LLMMessage,
-    get_model_instance,
-)
+from zhenxun import ui
+from zhenxun.services.ai import LLMMessage
+from zhenxun.services.ai.core.exceptions import LLMException
+from zhenxun.services.ai.llm import generate
 from zhenxun.services.log import logger
 
 from .. import base_config
-from ..store import store
-from .core import ErrorCode, SummaryException
-
-md_to_pic, html_to_pic = None, None
-if base_config.get("summary_output_type") == "image":
-    try:
-        from nonebot import require
-
-        require("nonebot_plugin_htmlrender")
-        from nonebot_plugin_htmlrender import html_to_pic
-    except Exception as e:
-        logger.warning(f"加载 htmlrender 失败，图片模式不可用: {e}")
+from ..config import GroupSettings
+from ..ui import GroupSummaryComponent
 
 
 async def messages_summary(
-    target: MsgTarget,
+    target: Target,
     messages: list[dict[str, str]],
     content: str | None = None,
     target_user_names: list[str] | None = None,
     style: str | None = None,
     model_name: str | None = None,
+    group_config: GroupSettings | None = None,
 ) -> str:
     if not messages:
         logger.warning("没有足够的聊天记录可供总结", command="messages_summary")
         return "没有足够的聊天记录可供总结。"
 
     prompt_parts = []
-    group_id = target.id if not target.private else None
 
     final_style = style
-    if not final_style and group_id:
-        final_style = store.get_group_setting(str(group_id), "default_style")
-        if final_style:
-            logger.debug(f"群聊 {group_id} 使用特定默认风格: '{final_style}'")
+    final_style = final_style or (group_config.default_style if group_config else None)
+
     if not final_style:
         final_style = base_config.get("SUMMARY_DEFAULT_STYLE")
-        if final_style:
-            logger.debug(f"使用插件全局默认风格: '{final_style}'")
 
     if final_style:
         prompt_parts.append(f"重要指令：请严格使用 '{final_style}' 的风格进行总结。")
@@ -65,7 +46,8 @@ async def messages_summary(
         prompt_parts.append(task_desc)
         if len(target_user_names) > 1:
             prompt_parts.append(
-                f"请注意：这里有 {len(target_user_names)} 个不同的用户，必须分别对每个用户的发言进行单独总结。"
+                f"请注意：这里有 {len(target_user_names)} 个不同的用户，"
+                "必须分别对每个用户的发言进行单独总结。"
             )
     elif content:
         prompt_parts.append(f"任务：请详细总结以下对话中仅与'{content}'相关的内容。")
@@ -90,12 +72,8 @@ async def messages_summary(
     llm_messages.append(LLMMessage.user(user_content))
 
     final_model_name_str = model_name
-    if not final_model_name_str and group_id:
-        final_model_name_str = store.get_group_setting(
-            str(group_id), "default_model_name"
-        )
-        if final_model_name_str:
-            logger.debug(f"群聊 {group_id} 使用特定模型: {final_model_name_str}")
+    if not final_model_name_str and group_config and group_config.default_model_name:
+        final_model_name_str = group_config.default_model_name
     if not final_model_name_str:
         final_model_name_str = base_config.get("SUMMARY_MODEL_NAME")
         if final_model_name_str:
@@ -106,9 +84,8 @@ async def messages_summary(
             f"开始调用LLM服务进行总结，模型: {final_model_name_str or 'LLM全局默认'}"
         )
 
-        async with await get_model_instance(final_model_name_str) as model:
-            response = await model.generate_response(llm_messages)
-            summary_text = response.text
+        response = await generate(messages=llm_messages, model=final_model_name_str)
+        summary_text = response.text
 
         return summary_text
     except LLMException as e:
@@ -125,107 +102,25 @@ async def messages_summary(
         raise LLMException(f"总结生成失败: {e!s}") from e
 
 
-async def generate_image(
+async def create_summary_component(
     summary: str, user_info_cache: dict[str, str] | None = None
-) -> bytes:
-    if html_to_pic is None:
-        raise ValueError("图片生成功能未启用或 htmlrender 未正确加载")
-    try:
-        html_from_md = markdown.markdown(
-            summary,
-            extensions=[
-                "pymdownx.tasklist",
-                "tables",
-                "fenced_code",
-                "codehilite",
-                "mdx_math",
-                "pymdownx.tilde",
-            ],
-            extension_configs={"mdx_math": {"enable_dollar_delimiter": True}},
-        )
+) -> GroupSummaryComponent:
+    """
+    创建一个可被渲染的群聊总结UI组件。
 
-        enhanced_html = html_from_md
-        if user_info_cache:
-            from .message_processing import avatar_enhancer
-
-            use_avatars = base_config.get("ENABLE_AVATAR_ENHANCEMENT", False)
-
-            await avatar_enhancer.enhance_summary_with_avatars(
-                summary, user_info_cache
-            )
-
-            if not use_avatars:
-                enhanced_html = avatar_enhancer.enhance_html_with_markup(
-                    html_from_md, user_info_cache, mode="mention"
-                )
-            else:
-                enhanced_html = avatar_enhancer.enhance_html_with_markup(
-                    html_from_md, user_info_cache, mode="avatar"
-                )
-        logger.debug(f"final_html: {enhanced_html}")
-        css_file = "dark.css"
-        theme = base_config.get("summary_theme")
-        if theme == "light":
-            css_file = "light.css"
-        elif theme == "dark":
-            css_file = "dark.css"
-        elif theme == "cyber":
-            css_file = "cyber.css"
-
-        css_path = (Path(__file__).parent.parent / "assert" / css_file).resolve()
-
-        async with aiofiles.open(css_path, encoding="utf-8") as f:
-            css_content = await f.read()
-
-        final_html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <meta charset="utf-8">
-            <style type="text/css">
-                {css_content}
-            </style>
-            <style>
-                .markdown-body {{
-                    box-sizing: border-box;
-                    min-width: 200px;
-                    max-width: 980px;
-                    margin: 0 auto;
-                    padding: 45px;
-                }}
-                @media (max-width: 767px) {{
-                    .markdown-body {{
-                        padding: 15px;
-                    }}
-                }}
-            </style>
-        </head>
-        <body>
-            <article class="markdown-body">
-                {enhanced_html}
-            </article>
-        </body>
-        </html>
-        """
-
-        logger.debug(f"使用主题 {theme or '默认'} 生成图片", command="图片生成")
-
-        img = await html_to_pic(
-            html=final_html,
-            viewport={"width": 850, "height": 10},
-        )
-        return img
-    except Exception as e:
-        logger.error(f"生成图片过程中发生意外错误: {e}", command="图片生成", e=e)
-        raise SummaryException(
-            f"图片生成失败: {e!s}", code=ErrorCode.IMAGE_GENERATION_FAILED
-        ) from e
+    :param summary: Markdown格式的总结文本。
+    :param user_info_cache: 用于头像查找的用户信息。
+    :return: 一个GroupSummaryComponent实例。
+    """
+    return GroupSummaryComponent(
+        markdown_content=summary,
+        user_info_cache=user_info_cache or {},
+    )
 
 
 async def send_summary(
     bot: Bot,
-    target: MsgTarget,
+    target: Target,
     summary: str,
     user_info_cache: dict[str, str] | None = None,
 ) -> bool:
@@ -236,20 +131,22 @@ async def send_summary(
 
         if output_type == "image":
             try:
-                img_bytes = await generate_image(summary, user_info_cache)
-
+                component = await create_summary_component(summary, user_info_cache)
+                img_bytes = await ui.render(
+                    component, viewport={"width": 850, "height": 10}
+                )
                 reply_msg = UniMessage.image(raw=img_bytes)
-            except (SummaryException, ValueError) as e:
+            except Exception as e:
                 if not fallback_enabled:
                     logger.error(
-                        f"图片生成失败且未启用文本回退: {e}",
+                        f"图片渲染失败且未启用文本回退: {e}",
                         command="send_summary",
                         e=e,
                     )
                     return False
 
                 logger.warning(
-                    f"图片生成失败，已启用文本回退: {e}", command="send_summary"
+                    f"图片渲染失败，已启用文本回退: {e}", command="send_summary"
                 )
 
         if reply_msg is None:
@@ -285,10 +182,3 @@ async def send_summary(
     except Exception as e:
         logger.error(f"发送总结失败: {e}", command="send_summary", e=e)
         return False
-
-
-async def read_tpl(path: str) -> str:
-    from nonebot_plugin_htmlrender.data_source import TEMPLATES_PATH
-
-    async with aiofiles.open(f"{TEMPLATES_PATH}/{path}") as f:
-        return await f.read()

@@ -1,50 +1,69 @@
+from pathlib import Path
+
 from nonebot import get_driver, require
 
 driver = get_driver()
+from bs4 import BeautifulSoup
+from markupsafe import Markup
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, PrivateMessageEvent
 from nonebot.permission import SUPERUSER
 from nonebot.plugin import PluginMetadata
 from nonebot_plugin_alconna.uniseg import MsgTarget, UniMessage
 
+from zhenxun.builtin_plugins.scheduler_admin.commands import schedule_cmd
 from zhenxun.configs.config import Config
-from zhenxun.configs.utils import PluginCdBlock, PluginExtraData, RegisterConfig
+from zhenxun.configs.utils import PluginExtraData, RegisterConfig
+from zhenxun.services import renderer_service
 from zhenxun.services.log import logger
-from zhenxun.utils.enum import LimitWatchType, PluginLimitType
-from zhenxun.utils.rules import admin_check, is_allowed_call
 
 require("nonebot_plugin_alconna")
-from arclet.alconna import (
-    Alconna,
-    Args,
-    CommandMeta,
-    Field,
-    MultiVar,
-    Option,
-    Subcommand,
-)
-from nonebot_plugin_alconna import (
-    At,
-    CommandResult,
-    Match,
-    Text,
-    on_alconna,
-)
+from nonebot_plugin_alconna import At, CommandResult, Match, Text
 
 base_config = Config.get("summary_group")
 
-from .config import summary_config  # noqa: F401
+from zhenxun.utils.depends import Cooldown, GetGroupConfig
+
+from .commands import summary_config_cmd, summary_group
+from .config import (
+    GroupSettings,
+    summary_config,  # noqa: F401
+)
+from .utils.message_processing import avatar_enhancer
+
+renderer_service.register_template_namespace(
+    "@summary_group", Path(__file__).parent / "templates"
+)
 
 
-def validate_msg_count_range(count: int) -> int:
+@renderer_service.filter("enhance_avatars")
+async def enhance_avatars_filter(html_content: str, user_info_cache: dict) -> Markup:
+    """
+    一个自定义的异步Jinja2过滤器，用于在渲染期间增强HTML中的头像。
+    它接收由 `md` 过滤器生成的HTML，并返回处理后的HTML。
+    """
+    if not user_info_cache:
+        return Markup(html_content)
+
+    summary_text = BeautifulSoup(html_content, "html.parser").get_text()
+    await avatar_enhancer.enhance_summary_with_avatars(summary_text, user_info_cache)
+    return Markup(
+        avatar_enhancer.enhance_html_with_markup(
+            html_content, user_info_cache, mode="avatar"
+        )
+    )
+
+
+def validate_msg_count_range(count: int | str) -> int | str:
     """验证消息数量是否在配置的范围内"""
-    logger.debug(f"--- 验证器 validate_msg_count_range 被调用，输入参数: {count} ---")
+    if not isinstance(count, int):
+        return count
 
     min_len_val = base_config.get("SUMMARY_MIN_LENGTH")
     max_len_val = base_config.get("SUMMARY_MAX_LENGTH")
 
     if min_len_val is None or max_len_val is None:
         logger.error(
-            "配置缺失: SUMMARY_MIN_LENGTH 或 SUMMARY_MAX_LENGTH 未在配置中找到或为 null。"
+            "配置缺失: SUMMARY_MIN_LENGTH 或 SUMMARY_MAX_LENGTH 未在配置中找到或为 null"
         )
         raise ValueError("配置错误: 缺少最小/最大消息长度设置。")
 
@@ -64,30 +83,6 @@ def validate_msg_count_range(count: int) -> int:
     return count
 
 
-def parse_and_validate_time(time_str: str) -> tuple[int, int]:
-    logger.debug(f"--- parse_and_validate_time 被调用，输入参数: {time_str!r} ---")
-
-    try:
-        from .handlers.scheduler import parse_time
-
-        result = parse_time(time_str)
-        logger.debug(
-            f"parse_and_validate_time 执行成功，结果: {result[0]:02d}:{result[1]:02d}"
-        )
-        return result
-
-    except ValueError as e:
-        logger.error(f"parse_and_validate_time 执行失败: {e}", e=e)
-        raise
-
-    except Exception as e:
-        logger.error(f"parse_and_validate_time 意外错误: {e}", e=e)
-        raise ValueError(f"解析时间时发生意外错误: {e}")
-
-
-TIME_REGEX = r"(0?[0-9]|1[0-9]|2[0-3]):([0-5][0-9])|(0?[0-9]|1[0-9]|2[0-3])([0-5][0-9])"
-
-
 __plugin_meta__ = PluginMetadata(
     name="群聊总结",
     description="使用 AI 分析群聊记录，生成讨论内容的总结",
@@ -100,10 +95,13 @@ __plugin_meta__ = PluginMetadata(
         "  `总结 <数量> -p <风格>` - 指定本次总结的风格\n"
         "  *(超级用户可追加 `-g <群号>` 指定任意群聊)*\n\n"
         "⏱️ **定时总结 (管理员及以上)**\n"
-        "  `定时总结 <时间> [数量] [-p <风格>]` - 为本群设置每日定时总结\n"
-        "  `定时总结取消` - 取消本群的定时总结任务\n"
-        "  *(时间格式: HH:MM 或 HHMM)*\n"
-        "  *(超级用户可追加 `-g <群号>` 或 `-all`)*\n\n"
+        "  `定时总结 开启 <时间>` - 为本群设置每日定时总结\n"
+        "  `定时总结 删除` - 删除本群的定时总结任务\n"
+        "  `定时总结 暂停` - 暂停本群的定时总结任务\n"
+        "  `定时总结 恢复` - 恢复本群的定时总结任务\n"
+        "  `定时总结 查看` - 查看本群的定时总结任务\n"
+        "  *(时间格式: HH:MM)*\n"
+        "  *(超级用户可追加 `-g <群号>` 或 `--all`)*\n\n"
         "⚙️ **群组配置 (管理员及以上)**\n"
         "  `总结配置` - 查看本群的总结配置\n"
         "  `总结配置 风格 设置 <风格>` - 设置本群的默认总结风格\n"
@@ -117,15 +115,16 @@ __plugin_meta__ = PluginMetadata(
         "  `总结风格 设置 <风格>` - 设置插件的全局默认风格\n"
         "  `总结风格 移除` - 移除插件的全局默认风格\n\n"
         "ℹ️ **说明**\n"
-        f"  • 消息数量范围: {base_config.get('SUMMARY_MIN_LENGTH', 1)}-{base_config.get('SUMMARY_MAX_LENGTH', 1000)}\n"
-        f"  • 手动总结冷却: {base_config.get('SUMMARY_COOL_DOWN', 60)}秒"
+        f"  • 消息数量范围: {base_config.get('SUMMARY_MIN_LENGTH', 1)}-"
+        f"{base_config.get('SUMMARY_MAX_LENGTH', 1000)}\n"
+        f"  • 手动总结冷却: {base_config.get('SUMMARY_COOL_DOWN', 5)}分钟"
     ),
     type="application",
     homepage="https://github.com/webjoin111/zhenxun_plugin_summary_group",
     supported_adapters={"~onebot.v11"},
     extra=PluginExtraData(
         author="webjoin111",
-        version="3.0.1",
+        version="3.1.0",
         configs=[
             RegisterConfig(
                 module="summary_group",
@@ -154,9 +153,9 @@ __plugin_meta__ = PluginMetadata(
             RegisterConfig(
                 module="summary_group",
                 key="SUMMARY_COOL_DOWN",
-                value=60,
-                help="用户手动触发总结的冷却时间（秒，0表示无冷却）",
-                default_value=60,
+                value=5,
+                help="用户手动触发总结的冷却时间（分钟，0表示无冷却）",
+                default_value=5,
                 type=int,
             ),
             RegisterConfig(
@@ -224,209 +223,91 @@ __plugin_meta__ = PluginMetadata(
                 type=bool,
             ),
         ],
-        limits=[
-            PluginCdBlock(
-                cd=60,
-                limit_type=PluginLimitType.CD,
-                watch_type=LimitWatchType.USER,
-                status=True,
-                result="总结功能冷却中，请等待 {cd} 后再试~",
-            )
-        ],
+        group_config_model=GroupSettings,
     ).dict(),
 )
 
 
-summary_group = on_alconna(
-    Alconna(
-        "总结",
-        Args[
-            "message_count",
-            int,
-            Field(
-                completion=lambda: f"输入消息数量 ({base_config.get('SUMMARY_MIN_LENGTH', 1)}-{base_config.get('SUMMARY_MAX_LENGTH', 1000)})",
-            ),
-        ],
-        Option(
-            "-p|--prompt",
-            Args["style", str, Field(completion="指定总结风格，如：锐评, 正式")],
-        ),
-        Option(
-            "-g",
-            Args[
-                "target_group_id", int, Field(completion="指定群号 (需要超级用户权限)")
-            ],
-        ),
-        Args[
-            "parts?",
-            MultiVar(At | Text),
-            Field(default=[], completion="可以@用户 或 输入要过滤的关键词"),
-        ],
-        meta=CommandMeta(
-            compact=True,
-            strict=False,
-            description="生成群聊总结",
-            usage=(
-                "总结 <消息数量> [-p|--prompt 风格] [-g 群号] [@用户/内容过滤...]\n"
-                "消息数量范围: "
-                f"{base_config.get('SUMMARY_MIN_LENGTH', 1)} - "
-                f"{base_config.get('SUMMARY_MAX_LENGTH', 1000)}\n"
-                "说明: -g 仅限超级用户"
-            ),
-        ),
-    ),
-    rule=is_allowed_call(),
-    priority=5,
-    block=True,
+schedule_cmd.shortcut(
+    r"^定时总结 开启 (?P<time>\S+)(?:\s+(?P<summary_args>.*?))?(?:\s+(?P<target>-g\s+[\d\s]+|-t\s+\S+))?$",  # noqa: E501
+    command="定时任务",
+    arguments=[
+        "设置",
+        "summary_group",
+        "{target}",
+        "--daily",
+        "{time}",
+        "--params-cli",
+        '"{summary_args}"',
+    ],
+    prefix=True,
 )
 
-summary_set = on_alconna(
-    Alconna(
-        "定时总结",
-        Args["time_str", str, Field(completion="输入定时时间 (HH:MM 或 HHMM)")],
-        Args[
-            "least_message_count?",
-            int,
-            Field(
-                default=base_config.get("SUMMARY_MAX_LENGTH", 1000),
-                completion="输入定时总结所需的最少消息数量 (可选)",
-            ),
-        ],
-        Option(
-            "-p|--prompt",
-            Args["style", str, Field(completion="指定总结风格，如：锐评, 正式 (可选)")],
-        ),
-        Option(
-            "-g",
-            Args[
-                "target_group_id", int, Field(completion="指定群号 (需要超级用户权限)")
-            ],
-        ),
-        Option("-all", help_text="对所有群生效 (需要超级用户权限)"),
-        meta=CommandMeta(
-            description="设置定时群聊总结",
-            usage=(
-                "定时总结 <时间> [最少消息数量] [-p|--prompt 风格] [-g 群号 | -all]\n"
-                "时间格式: HH:MM 或 HHMM\n"
-                "说明: 设置本群需管理员, -g/-all 仅限超级用户"
-            ),
-            compact=True,
-        ),
-    ),
-    rule=admin_check("summary_group", "SUMMARY_ADMIN_LEVEL"),
-    priority=5,
-    block=True,
+schedule_cmd.shortcut(
+    r"^定时总结 (?P<action>关闭|删除)"
+    r"(?:\s+(?P<target>--all|-g\s+[\d\s]+|-t\s+\S+))?$",
+    command="定时任务",
+    arguments=["{action}", "{target}", "-p", "summary_group"],
+    prefix=True,
 )
 
-
-summary_remove = on_alconna(
-    Alconna(
-        "定时总结取消",
-        Option(
-            "-g",
-            Args[
-                "target_group_id", int, Field(completion="指定群号 (需要超级用户权限)")
-            ],
-        ),
-        Option("-all", help_text="取消所有群的定时总结 (需要超级用户权限)"),
-        meta=CommandMeta(
-            description="取消定时群聊总结",
-            usage="定时总结取消 [-g 群号 | -all]\n说明: 取消本群需管理员",
-            example="定时总结取消\n定时总结取消 -g 123456\n定时总结取消 -all",
-        ),
-    ),
-    rule=admin_check("summary_group", "SUMMARY_ADMIN_LEVEL"),
-    priority=4,
-    block=True,
+schedule_cmd.shortcut(
+    r"^定时总结 (?P<action>暂停|恢复|查看)"
+    r"(?:\s+(?P<target>--all|-g\s+[\d\s]+|-t\s+\S+))?$",
+    command="定时任务",
+    arguments=["{action}", "{target}", "-p", "summary_group"],
+    prefix=True,
 )
 
-
-summary_model_cmd = on_alconna(
-    Alconna(
-        "总结模型",
-        Subcommand("列表", help_text="查看可用AI模型列表"),
-        Subcommand(
-            "设置", Args["provider_model", str], help_text="设置本插件全局默认模型"
-        ),
-        meta=CommandMeta(
-            description="管理总结插件的全局默认AI模型",
-            usage="总结模型 列表\n总结模型 设置 <Provider/Model>",
-        ),
-    ),
-    permission=SUPERUSER,
-    priority=5,
-    block=True,
+schedule_cmd.shortcut(
+    r"^全局定时总结 (?P<action>开启) (?P<time>\S+)$",
+    command="定时任务",
+    arguments=["设置", "summary_group", "--global", "--daily", "{time}"],
+    prefix=True,
 )
 
-summary_style_cmd = on_alconna(
-    Alconna(
-        "总结风格",
-        Subcommand("设置", Args["style_name", str], help_text="设置本插件全局默认风格"),
-        Subcommand("移除", help_text="移除全局默认风格"),
-        meta=CommandMeta(
-            description="管理总结插件的全局默认风格",
-            usage="总结风格 设置 <风格名称>\n总结风格 移除",
-        ),
-    ),
-    permission=SUPERUSER,
-    priority=5,
-    block=True,
-)
-
-summary_config_cmd = on_alconna(
-    Alconna(
-        "总结配置",
-        Option("-g", Args["target_group_id?", int], help_text="指定群号(仅超级用户)"),
-        Subcommand(
-            "模型", Subcommand("设置", Args["provider_model", str]), Subcommand("移除")
-        ),
-        Subcommand(
-            "风格", Subcommand("设置", Args["style_name", str]), Subcommand("移除")
-        ),
-        meta=CommandMeta(
-            description="管理本群或指定群的总结配置",
-            usage=(
-                "总结配置 (查看本群配置)\n"
-                "总结配置 模型 设置 <Provider/Model> (为本群设置模型, 仅超管)\n"
-                "总结配置 模型 移除 (移除本群特定模型, 仅超管)\n"
-                "总结配置 风格 设置 <风格名称> (为本群设置风格, 需管理)\n"
-                "总结配置 风格 移除 (移除本群特定风格, 需管理)\n"
-            ),
-        ),
-    ),
-    priority=5,
-    block=True,
+schedule_cmd.shortcut(
+    r"^全局定时总结 (?P<action>关闭|删除|暂停|恢复|查看)$",
+    command="定时任务",
+    arguments=["{action}", "--global", "-p", "summary_group"],
+    prefix=True,
 )
 
 
 from .handlers.group_settings import (
-    handle_global_model_setting,
-    handle_global_style_setting,
     handle_group_specific_config,
-)
-from .handlers.scheduler import (
-    handle_summary_remove as summary_remove_handler_impl,
-)
-from .handlers.scheduler import (
-    handle_summary_set as summary_set_handler_impl,
 )
 from .handlers.summary import handle_summary as summary_handler_impl
 
 
-@summary_group.handle()
+@summary_group.handle(
+    [
+        Cooldown(
+            f"{base_config.get('SUMMARY_COOL_DOWN', 5)}m",
+            prompt="总结功能冷却中，请等待 {cd_str} 后再试~",
+        )
+    ]
+)
 async def _(
     bot: Bot,
     event: GroupMessageEvent | PrivateMessageEvent,
     result: CommandResult,
-    message_count: int,
+    message_count: int | str,
     style: Match[str],
     parts: Match[list[At | Text]],
     target: MsgTarget,
+    group_config: GroupSettings = GetGroupConfig(GroupSettings),
 ):
     user_id_str = event.get_user_id()
     is_superuser = await SUPERUSER(bot, event)
 
     try:
+        if isinstance(message_count, str):
+            if message_count.isdigit():
+                message_count = int(message_count)
+            elif message_count != "当天":
+                await UniMessage.text("消息数量应为整数或'当天'。").send(target)
+                return
         validate_msg_count_range(message_count)
         logger.debug(f"消息数量 {message_count} 范围验证通过。")
     except ValueError as e:
@@ -435,7 +316,8 @@ async def _(
         return
 
     logger.debug(
-        f"用户 {user_id_str} 触发总结，权限、冷却和参数验证通过 (或为 Superuser)，开始执行核心逻辑。"
+        f"用户 {user_id_str} 触发总结，权限、冷却和参数验证通过 (或为 Superuser)，"
+        f"开始执行核心逻辑。"
     )
 
     arp = result.result
@@ -447,7 +329,7 @@ async def _(
 
     try:
         await summary_handler_impl(
-            bot, event, result, message_count, style, parts, target
+            bot, event, result, message_count, style, parts, target, group_config
         )
     except Exception as e:
         logger.error(
@@ -460,94 +342,6 @@ async def _(
             await UniMessage.text(f"处理命令时出错: {e!s}").send(target)
         except Exception:
             logger.error("发送错误消息失败", command="总结")
-
-
-@summary_set.handle()
-async def _(
-    bot: Bot,
-    event: GroupMessageEvent | PrivateMessageEvent,
-    result: CommandResult,
-    target: MsgTarget,
-):
-    try:
-        arp = result.result
-        if not arp:
-            logger.error("在 summary_set handler 中 Arparma result 为 None")
-            await UniMessage.text("命令解析内部错误，请重试或联系管理员。").send(target)
-            return
-
-        time_str_match = arp.query("time_str")
-        least_count_match = arp.query("least_message_count")
-
-        style_value = arp.query("p.style")
-        if style_value is None:
-            style_value = arp.query("prompt.style")
-        logger.debug(f"使用 arp.query 提取的 style_value: {style_value!r}")
-
-        if not time_str_match:
-            await UniMessage.text("必须提供时间参数").send(target)
-            return
-
-        try:
-            time_tuple = parse_and_validate_time(time_str_match)
-
-            default_count = base_config.get("SUMMARY_MAX_LENGTH")
-            count_to_validate = (
-                least_count_match if least_count_match is not None else default_count
-            )
-            least_count = validate_msg_count_range(int(count_to_validate))
-
-        except ValueError as e:
-            await UniMessage.text(str(e)).send(target)
-            return
-        except Exception as e:
-            logger.error(f"解析时间或数量时出错: {e}", command="定时总结")
-            await UniMessage.text(f"解析时间或数量时出错: {e}").send(target)
-            return
-
-        await summary_set_handler_impl(
-            bot, event, result, time_tuple, least_count, style_value, target
-        )
-    except Exception as e:
-        logger.error(
-            f"处理定时总结设置命令时发生异常: {e}",
-            command="定时总结",
-            session=event.get_user_id(),
-            group_id=getattr(event, "group_id", None),
-            e=e,
-        )
-        try:
-            await UniMessage.text(f"处理命令时出错: {e!s}").send(target)
-        except Exception:
-            logger.error("发送错误消息失败", command="定时总结")
-
-
-@summary_remove.handle()
-async def _(
-    bot: Bot,
-    event: GroupMessageEvent | PrivateMessageEvent,
-    result: CommandResult,
-    target: MsgTarget,
-):
-    await summary_remove_handler_impl(bot, event, result, target)
-
-
-@summary_model_cmd.handle()
-async def _(
-    event: GroupMessageEvent | PrivateMessageEvent,
-    target: MsgTarget,
-    result: CommandResult,
-):
-    await handle_global_model_setting(event.get_user_id(), target, result)
-
-
-@summary_style_cmd.handle()
-async def _(
-    event: GroupMessageEvent | PrivateMessageEvent,
-    target: MsgTarget,
-    result: CommandResult,
-):
-    await handle_global_style_setting(event.get_user_id(), target, result)
 
 
 @summary_config_cmd.handle()

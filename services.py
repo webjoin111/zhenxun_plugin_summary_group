@@ -1,11 +1,12 @@
 from nonebot.adapters.onebot.v11 import Bot
-from nonebot_plugin_alconna.uniseg import MsgTarget, UniMessage
+from nonebot_plugin_alconna.uniseg import Target, UniMessage
 from pydantic import BaseModel, Field
 
-from zhenxun.services.llm import LLMException
+from zhenxun.services.ai.core.exceptions import LLMException
 from zhenxun.services.log import logger
 
 from . import base_config
+from .config import GroupSettings
 from .utils.core import SummaryException
 from .utils.message_processing import get_group_messages
 from .utils.summary_generation import messages_summary, send_summary
@@ -16,11 +17,12 @@ class SummaryParameters(BaseModel):
 
     bot: Bot
     target_group_id: int
-    message_count: int
+    message_count: int | str
     style: str | None = None
     content_filter: str | None = None
     target_user_ids: set[str] | None = Field(default_factory=set)
-    response_target: MsgTarget
+    group_config: GroupSettings | None = None
+    response_target: Target
 
     class Config:
         arbitrary_types_allowed = True
@@ -41,7 +43,8 @@ class SummaryService:
         将原 handler 中的消息获取逻辑移到此处。
         """
         self.logger.debug(
-            f"Service: 开始获取群 {self.params.target_group_id} 的原始消息: count={self.params.message_count}",
+            f"Service: 开始获取群 {self.params.target_group_id} 的原始消息: "
+            f"count={self.params.message_count}",
             command="总结服务",
         )
         use_db = base_config.get("USE_DB_HISTORY", False)
@@ -56,7 +59,10 @@ class SummaryService:
 
         if not self.processed_messages:
             if self.params.target_user_ids:
-                msg = f"在群聊 {self.params.target_group_id} 中未能获取到指定用户的有效聊天记录。"
+                msg = (
+                    f"在群聊 {self.params.target_group_id} 中未能获取到"
+                    "指定用户的有效聊天记录。"
+                )
             else:
                 msg = f"未能获取到群聊 {self.params.target_group_id} 的聊天记录。"
             raise SummaryException(msg)
@@ -77,7 +83,7 @@ class SummaryService:
                 for uid in self.params.target_user_ids
             ]
 
-        summary_content_target = MsgTarget(str(self.params.target_group_id))
+        summary_content_target = Target.group(group_id=str(self.params.target_group_id))
 
         summary = await messages_summary(
             target=summary_content_target,
@@ -85,9 +91,11 @@ class SummaryService:
             content=self.params.content_filter,
             target_user_names=target_user_names or None,
             style=self.params.style,
+            group_config=self.params.group_config,
         )
         self.logger.debug(
-            f"Service: 群 {self.params.target_group_id} 总结生成成功，长度: {len(summary)} 字符",
+            f"Service: 群 {self.params.target_group_id} 总结生成成功，"
+            f"长度: {len(summary)} 字符",
             command="总结服务",
         )
         return summary
@@ -119,7 +127,7 @@ class SummaryService:
                 command="总结服务",
                 e=e,
             )
-            await UniMessage.text(e.user_friendly_message).send(
+            await UniMessage.text(str(e.user_friendly_message)).send(
                 self.params.response_target
             )
             return False
@@ -129,7 +137,7 @@ class SummaryService:
                 command="总结服务",
                 e=e,
             )
-            await UniMessage.text(e.user_friendly_message).send(
+            await UniMessage.text(str(e.user_friendly_message)).send(
                 self.params.response_target
             )
             return False
